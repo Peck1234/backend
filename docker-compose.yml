@@ -1,0 +1,12 @@
+services:
+  mysql:
+    image: mysql:8.0
+
+    container_name: medication_mysql
+
+    environment:
+      MYSQL_DATABASE: medication
+      MYSQL_ROOT_PASSWORD: root
+
+    ports:
+      - "3306:3306"
