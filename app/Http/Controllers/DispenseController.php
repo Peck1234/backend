@@ -6,6 +6,7 @@ use App\Models\DispenseLog;
 use App\Models\Medication;
 use App\Models\Nurse;
 use App\Models\Patient;
+use App\Services\DispenseVerificationService;
 use Illuminate\Http\Request;
 
 class DispenseController extends Controller
@@ -18,56 +19,22 @@ class DispenseController extends Controller
             'cassette_qr' => 'required|string',
         ]);
 
+        // Same three lookups as before, just no longer short-circuited on the
+        // first miss - the DispenseVerificationService needs all three (or
+        // whichever come back null) to decide the verdict. On a QR scan this
+        // small hospital-cart dataset makes the extra indexed lookups free;
+        // the API response and every side effect below is unchanged.
         $nurse = Nurse::where('qr_code_nurse', $data['nurse_qr'])->first();
-        if (!$nurse) {
-            return $this->respond([
-                'result' => 'incorrect',
-                'drug_name' => null,
-                'message' => 'ไม่พบข้อมูลพยาบาลจาก QR นี้',
-            ], null, null, null, $data['cassette_qr']);
-        }
-
         $patient = Patient::where('qr_code_patient', $data['patient_qr'])->first();
-        if (!$patient) {
-            return $this->respond([
-                'result' => 'incorrect',
-                'drug_name' => null,
-                'message' => 'ไม่พบข้อมูลผู้ป่วยจาก QR นี้',
-            ], $nurse, null, null, $data['cassette_qr']);
-        }
-
         $medication = Medication::where('qr_code_cassette', $data['cassette_qr'])->first();
-        if (!$medication) {
-            return $this->respond([
-                'result' => 'incorrect',
-                'drug_name' => null,
-                'message' => 'QR code ไม่ถูกต้อง',
-            ], $nurse, $patient, null, $data['cassette_qr']);
+
+        $outcome = (new DispenseVerificationService())->evaluate($nurse, $patient, $medication);
+
+        if ($outcome['should_dispense']) {
+            $medication->update(['dispensed_at' => now()]);
         }
 
-        if ($medication->patient_id !== $patient->id) {
-            return $this->respond([
-                'result' => 'incorrect',
-                'drug_name' => $medication->drug_name,
-                'message' => 'ตลับยานี้ไม่ใช่ของผู้ป่วยรายนี้',
-            ], $nurse, $patient, $medication, $data['cassette_qr']);
-        }
-
-        if ($medication->isDispensedToday()) {
-            return $this->respond([
-                'result' => 'incorrect',
-                'drug_name' => $medication->drug_name,
-                'message' => 'ยานี้ถูกจ่ายไปแล้ววันนี้',
-            ], $nurse, $patient, $medication, $data['cassette_qr']);
-        }
-
-        $medication->update(['dispensed_at' => now()]);
-
-        return $this->respond([
-            'result' => 'correct',
-            'drug_name' => $medication->drug_name,
-            'message' => 'จ่ายยาสำเร็จ',
-        ], $nurse, $patient, $medication, $data['cassette_qr']);
+        return $this->respond($outcome, $nurse, $patient, $medication, $data['cassette_qr']);
     }
 
     private function respond(
@@ -86,6 +53,13 @@ class DispenseController extends Controller
             'message' => $payload['message'],
         ]);
 
-        return response()->json($payload);
+        // Only these three keys were ever part of the response contract -
+        // 'should_dispense' is an internal signal from the verification
+        // service for this method, not something the app should see.
+        return response()->json([
+            'result' => $payload['result'],
+            'drug_name' => $payload['drug_name'],
+            'message' => $payload['message'],
+        ]);
     }
 }

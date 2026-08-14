@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Nurse;
+use App\Support\NurseCodeGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -24,7 +25,7 @@ class AuthController extends Controller
             'qr_code_nurse' => 'NURSE-PENDING-' . Str::uuid(),
         ]);
 
-        $nurse->update(['qr_code_nurse' => 'NURSE-' . str_pad($nurse->id, 3, '0', STR_PAD_LEFT)]);
+        $nurse->update(['qr_code_nurse' => NurseCodeGenerator::forId($nurse->id)]);
 
         return response()->json([
             'nurse_id' => $nurse->id,

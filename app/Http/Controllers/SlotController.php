@@ -6,6 +6,7 @@ use App\Models\CartSlot;
 use App\Models\Nurse;
 use App\Models\Patient;
 use App\Models\SlotAuditLog;
+use App\Services\SlotAssignmentService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -65,7 +66,13 @@ class SlotController extends Controller
             'base_version' => 'required|integer',
         ]);
 
-        if ($validated['base_version'] !== $slot->version) {
+        $alreadyElsewhere = CartSlot::where('current_patient_id', $validated['patient_id'])
+            ->where('id', '!=', $slot->id)
+            ->first();
+
+        $outcome = (new SlotAssignmentService())->evaluateAssign($slot, $validated['base_version'], $alreadyElsewhere);
+
+        if ($outcome['status'] === 'version_conflict') {
             $this->writeLog($slot, $validated['staff_id'] ?? null, 'reject', $this->slotSnapshot($slot), [
                 'attempted_action' => 'assign',
                 'attempted_patient_id' => $validated['patient_id'],
@@ -77,17 +84,13 @@ class SlotController extends Controller
             ], 409);
         }
 
-        $alreadyElsewhere = CartSlot::where('current_patient_id', $validated['patient_id'])
-            ->where('id', '!=', $slot->id)
-            ->first();
-
-        if ($alreadyElsewhere) {
+        if ($outcome['status'] === 'patient_already_assigned') {
             return response()->json([
-                'detail' => "ผู้ป่วยรายนี้ผูกกับช่อง {$alreadyElsewhere->slot_code} อยู่แล้ว",
+                'detail' => "ผู้ป่วยรายนี้ผูกกับช่อง {$outcome['existing_slot_code']} อยู่แล้ว",
             ], 422);
         }
 
-        if ($slot->status === 'occupied') {
+        if ($outcome['status'] === 'slot_occupied') {
             return response()->json(['detail' => 'ช่องนี้มีผู้ป่วยอยู่แล้ว'], 422);
         }
 
@@ -115,11 +118,13 @@ class SlotController extends Controller
             'base_version' => 'required|integer',
         ]);
 
-        if ($slot->status === 'empty') {
+        $outcome = (new SlotAssignmentService())->evaluateClear($slot, $validated['base_version']);
+
+        if ($outcome['status'] === 'already_empty') {
             return response()->json(['status' => 'already-empty', 'version' => $slot->version]);
         }
 
-        if ($validated['base_version'] !== $slot->version) {
+        if ($outcome['status'] === 'version_conflict') {
             $this->writeLog($slot, $validated['staff_id'] ?? null, 'reject', $this->slotSnapshot($slot), [
                 'attempted_action' => 'clear',
             ]);
