@@ -1,0 +1,192 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\CartSlot;
+use App\Models\Medication;
+use App\Models\Patient;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class PatientControllerTest extends TestCase
+{
+    use RefreshDatabase;
+
+    /** @test */
+    public function index_lists_patients_with_slot_info_derived_from_cart_slots()
+    {
+        $patient = Patient::create([
+            'full_name' => 'ผู้ป่วย ทดสอบ',
+            'ward' => 'A',
+            'bed_no' => '1',
+            'qr_code_patient' => 'PATIENT-001',
+        ]);
+        CartSlot::create([
+            'slot_code' => 'SLOT-0001',
+            'slot_no' => 3,
+            'status' => 'occupied',
+            'current_patient_id' => $patient->id,
+            'version' => 1,
+        ]);
+
+        $response = $this->getJson('/api/patients');
+
+        $response->assertStatus(200)->assertJsonFragment([
+            'patient_id' => $patient->id,
+            'slot_no' => 3,
+            'qr_code_slot' => 'SLOT-0001',
+        ]);
+    }
+
+    /** @test */
+    public function index_returns_null_slot_fields_for_a_patient_with_no_slot()
+    {
+        Patient::create([
+            'full_name' => 'ผู้ป่วย ไม่มีช่อง',
+            'qr_code_patient' => 'PATIENT-002',
+        ]);
+
+        $response = $this->getJson('/api/patients');
+
+        $response->assertStatus(200)->assertJsonFragment([
+            'slot_no' => null,
+            'qr_code_slot' => null,
+        ]);
+    }
+
+    /** @test */
+    public function medications_are_sorted_by_earliest_time_slot_and_include_due_status()
+    {
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        Medication::create([
+            'patient_id' => $patient->id,
+            'drug_name' => 'Evening Drug',
+            'dose' => '1 เม็ด',
+            'qr_code_cassette' => 'CASSETTE-EVENING',
+            'time_slot' => '18:00',
+        ]);
+        Medication::create([
+            'patient_id' => $patient->id,
+            'drug_name' => 'Morning Drug',
+            'dose' => '1 เม็ด',
+            'qr_code_cassette' => 'CASSETTE-MORNING',
+            'time_slot' => '08:00',
+        ]);
+        Medication::create([
+            'patient_id' => $patient->id,
+            'drug_name' => 'PRN Drug',
+            'dose' => '1 เม็ด',
+            'qr_code_cassette' => 'CASSETTE-PRN',
+            'time_slot' => null,
+        ]);
+
+        $response = $this->getJson("/api/patients/{$patient->id}/medications");
+
+        $response->assertStatus(200);
+        $names = collect($response->json('medications'))->pluck('drug_name')->all();
+        $this->assertSame(['Morning Drug', 'Evening Drug', 'PRN Drug'], $names);
+    }
+
+    /** @test */
+    public function store_creates_a_patient_with_medications_in_one_request()
+    {
+        $response = $this->postJson('/api/patients', [
+            'full_name' => 'ผู้ป่วย ใหม่',
+            'ward' => 'B',
+            'bed_no' => '2',
+            'qr_code_patient' => 'PATIENT-NEW',
+            'medications' => [
+                ['drug_name' => 'Paracetamol', 'dose' => '1 เม็ด', 'qr_code_cassette' => 'CASSETTE-1'],
+            ],
+        ]);
+
+        $response->assertStatus(201)->assertJsonStructure(['patient_id']);
+        $this->assertDatabaseHas('patients', ['qr_code_patient' => 'PATIENT-NEW']);
+        $this->assertDatabaseHas('medications', ['qr_code_cassette' => 'CASSETTE-1', 'drug_name' => 'Paracetamol']);
+    }
+
+    /** @test */
+    public function store_rejects_a_duplicate_patient_qr_code()
+    {
+        // Caught by the 'unique:patients,qr_code_patient' validation rule
+        // before the controller's transaction even runs - the QueryException
+        // catch in store() exists only for the race-condition case where two
+        // requests both pass validation before either commits.
+        Patient::create(['full_name' => 'มีอยู่แล้ว', 'qr_code_patient' => 'PATIENT-DUP']);
+
+        $response = $this->postJson('/api/patients', [
+            'full_name' => 'ผู้ป่วย ใหม่',
+            'qr_code_patient' => 'PATIENT-DUP',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('qr_code_patient');
+    }
+
+    /** @test */
+    public function store_rejects_a_missing_required_field()
+    {
+        $response = $this->postJson('/api/patients', ['ward' => 'A']);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['full_name', 'qr_code_patient']);
+    }
+
+    /** @test */
+    public function update_replaces_the_patients_medication_list_keeping_ids_that_are_still_present()
+    {
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $keep = Medication::create([
+            'patient_id' => $patient->id,
+            'drug_name' => 'Keep Me',
+            'dose' => '1 เม็ด',
+            'qr_code_cassette' => 'CASSETTE-KEEP',
+        ]);
+        $drop = Medication::create([
+            'patient_id' => $patient->id,
+            'drug_name' => 'Drop Me',
+            'dose' => '1 เม็ด',
+            'qr_code_cassette' => 'CASSETTE-DROP',
+        ]);
+
+        $response = $this->putJson("/api/patients/{$patient->id}", [
+            'full_name' => 'ผู้ป่วย ทดสอบ',
+            'qr_code_patient' => 'PATIENT-001',
+            'medications' => [
+                ['id' => $keep->id, 'drug_name' => 'Keep Me Updated', 'dose' => '2 เม็ด', 'qr_code_cassette' => 'CASSETTE-KEEP'],
+                ['drug_name' => 'New Drug', 'dose' => '1 เม็ด', 'qr_code_cassette' => 'CASSETTE-NEW'],
+            ],
+        ]);
+
+        $response->assertStatus(200)->assertJson(['ok' => true]);
+        $this->assertDatabaseHas('medications', ['id' => $keep->id, 'drug_name' => 'Keep Me Updated']);
+        $this->assertDatabaseMissing('medications', ['id' => $drop->id]);
+        $this->assertDatabaseHas('medications', ['qr_code_cassette' => 'CASSETTE-NEW']);
+    }
+
+    /** @test */
+    public function update_rejects_a_qr_code_already_used_by_another_patient()
+    {
+        Patient::create(['full_name' => 'คนอื่น', 'qr_code_patient' => 'PATIENT-OTHER']);
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+
+        $response = $this->putJson("/api/patients/{$patient->id}", [
+            'full_name' => 'ผู้ป่วย ทดสอบ',
+            'qr_code_patient' => 'PATIENT-OTHER',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('qr_code_patient');
+    }
+
+    /** @test */
+    public function update_allows_keeping_the_patients_own_existing_qr_code()
+    {
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+
+        $response = $this->putJson("/api/patients/{$patient->id}", [
+            'full_name' => 'ผู้ป่วย ทดสอบ (แก้ชื่อ)',
+            'qr_code_patient' => 'PATIENT-001',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame('ผู้ป่วย ทดสอบ (แก้ชื่อ)', $patient->fresh()->full_name);
+    }
+}

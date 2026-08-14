@@ -19,8 +19,15 @@ class CartSlot extends Model
         'occupied_at',
     ];
 
+    // 'version' is explicitly cast because PHP's SQLite PDO driver (used by
+    // the test suite) returns INTEGER columns as strings, unlike the MySQL
+    // driver Laravel connects with in production - without this cast,
+    // SlotAssignmentService's strict version comparison would see "3" !== 3
+    // and report a false version_conflict under SQLite only.
     protected $casts = [
         'occupied_at' => 'datetime',
+        'version' => 'integer',
+        'slot_no' => 'integer',
     ];
 
     public function currentPatient()
