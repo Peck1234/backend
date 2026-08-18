@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Nurse;
+use App\Models\PasswordResetCode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 // Full HTTP-level coverage for /api/register and /api/login, running against
@@ -21,6 +23,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/api/register', [
             'full_name' => 'สมหญิง ใจดี',
             'username' => 'somying',
+            'email' => 'somying@example.com',
             'password' => 'secret123',
         ]);
 
@@ -28,12 +31,35 @@ class AuthControllerTest extends TestCase
             ->assertJson([
                 'full_name' => 'สมหญิง ใจดี',
                 'username' => 'somying',
+                'email' => 'somying@example.com',
             ])
-            ->assertJsonStructure(['nurse_id', 'full_name', 'username', 'qr_code_nurse']);
+            ->assertJsonStructure(['nurse_id', 'full_name', 'username', 'email', 'qr_code_nurse', 'token']);
 
         $nurse = Nurse::first();
         $this->assertSame('NURSE-' . str_pad((string) $nurse->id, 3, '0', STR_PAD_LEFT), $nurse->qr_code_nurse);
         $this->assertTrue(Hash::check('secret123', $nurse->password));
+    }
+
+    /** @test */
+    public function register_issues_a_usable_sanctum_token()
+    {
+        $response = $this->postJson('/api/register', [
+            'full_name' => 'สมหญิง ใจดี',
+            'username' => 'somying',
+            'email' => 'somying@example.com',
+            'password' => 'secret123',
+        ]);
+
+        $token = $response->json('token');
+        $this->assertNotEmpty($token);
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->putJson('/api/profile', [
+                'full_name' => 'สมหญิง ใจดี',
+                'username' => 'somying',
+                'email' => 'somying@example.com',
+            ])
+            ->assertStatus(200);
     }
 
     /** @test */
@@ -42,6 +68,7 @@ class AuthControllerTest extends TestCase
         Nurse::create([
             'full_name' => 'Existing',
             'username' => 'somying',
+            'email' => 'existing@example.com',
             'password' => Hash::make('whatever1'),
             'qr_code_nurse' => 'NURSE-001',
         ]);
@@ -49,10 +76,32 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/api/register', [
             'full_name' => 'สมหญิง คนใหม่',
             'username' => 'somying',
+            'email' => 'somying-new@example.com',
             'password' => 'secret123',
         ]);
 
         $response->assertStatus(422)->assertJsonValidationErrors('username');
+    }
+
+    /** @test */
+    public function register_rejects_a_duplicate_email()
+    {
+        Nurse::create([
+            'full_name' => 'Existing',
+            'username' => 'existing',
+            'email' => 'somying@example.com',
+            'password' => Hash::make('whatever1'),
+            'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->postJson('/api/register', [
+            'full_name' => 'สมหญิง คนใหม่',
+            'username' => 'somying2',
+            'email' => 'somying@example.com',
+            'password' => 'secret123',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('email');
     }
 
     /** @test */
@@ -61,6 +110,7 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/api/register', [
             'full_name' => 'สมหญิง ใจดี',
             'username' => 'som ying!',
+            'email' => 'somying@example.com',
             'password' => 'secret123',
         ]);
 
@@ -73,10 +123,24 @@ class AuthControllerTest extends TestCase
         $response = $this->postJson('/api/register', [
             'full_name' => 'สมหญิง ใจดี',
             'username' => 'somying',
+            'email' => 'somying@example.com',
             'password' => '123',
         ]);
 
         $response->assertStatus(422)->assertJsonValidationErrors('password');
+    }
+
+    /** @test */
+    public function register_rejects_a_malformed_email()
+    {
+        $response = $this->postJson('/api/register', [
+            'full_name' => 'สมหญิง ใจดี',
+            'username' => 'somying',
+            'email' => 'not-an-email',
+            'password' => 'secret123',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('email');
     }
 
     /** @test */
@@ -85,6 +149,7 @@ class AuthControllerTest extends TestCase
         Nurse::create([
             'full_name' => 'สมหญิง ใจดี',
             'username' => 'somying',
+            'email' => 'somying@example.com',
             'password' => Hash::make('secret123'),
             'qr_code_nurse' => 'NURSE-001',
         ]);
@@ -94,10 +159,12 @@ class AuthControllerTest extends TestCase
             'password' => 'secret123',
         ]);
 
-        $response->assertStatus(200)->assertJson([
-            'username' => 'somying',
-            'qr_code_nurse' => 'NURSE-001',
-        ]);
+        $response->assertStatus(200)
+            ->assertJson([
+                'username' => 'somying',
+                'qr_code_nurse' => 'NURSE-001',
+            ])
+            ->assertJsonStructure(['token']);
     }
 
     /** @test */
@@ -106,6 +173,7 @@ class AuthControllerTest extends TestCase
         Nurse::create([
             'full_name' => 'สมหญิง ใจดี',
             'username' => 'somying',
+            'email' => 'somying@example.com',
             'password' => Hash::make('secret123'),
             'qr_code_nurse' => 'NURSE-001',
         ]);
@@ -127,5 +195,257 @@ class AuthControllerTest extends TestCase
         ]);
 
         $response->assertStatus(401)->assertJson(['detail' => 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง']);
+    }
+
+    // ---- forgot-password / reset-password ----
+
+    /** @test */
+    public function forgot_password_sends_a_code_when_the_email_exists()
+    {
+        Mail::fake();
+
+        Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->postJson('/api/forgot-password', ['email' => 'somying@example.com']);
+
+        $response->assertStatus(200);
+        Mail::assertSent(\App\Mail\NursePasswordResetCodeMail::class);
+        $this->assertDatabaseCount('password_reset_codes', 1);
+    }
+
+    /** @test */
+    public function forgot_password_returns_the_identical_response_for_an_unknown_email_no_enumeration()
+    {
+        Mail::fake();
+
+        $known = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $knownResponse = $this->postJson('/api/forgot-password', ['email' => 'somying@example.com']);
+        $unknownResponse = $this->postJson('/api/forgot-password', ['email' => 'nobody@example.com']);
+
+        $knownResponse->assertStatus(200);
+        $unknownResponse->assertStatus(200);
+        $this->assertSame($knownResponse->json(), $unknownResponse->json());
+        Mail::assertSent(\App\Mail\NursePasswordResetCodeMail::class, 1);
+        $this->assertDatabaseCount('password_reset_codes', 1);
+    }
+
+    /** @test */
+    public function forgot_password_replaces_any_previous_unused_code_for_the_same_email()
+    {
+        Mail::fake();
+        Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $this->postJson('/api/forgot-password', ['email' => 'somying@example.com']);
+        $this->postJson('/api/forgot-password', ['email' => 'somying@example.com']);
+
+        $this->assertDatabaseCount('password_reset_codes', 1);
+    }
+
+    /** @test */
+    public function reset_password_succeeds_with_the_correct_unexpired_code()
+    {
+        Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+        PasswordResetCode::create([
+            'email' => 'somying@example.com',
+            'code' => Hash::make('123456'),
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $response = $this->postJson('/api/reset-password', [
+            'email' => 'somying@example.com', 'code' => '123456', 'new_password' => 'newpass456',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertTrue(Hash::check('newpass456', Nurse::first()->password));
+    }
+
+    /** @test */
+    public function reset_password_rejects_an_incorrect_code()
+    {
+        Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+        PasswordResetCode::create([
+            'email' => 'somying@example.com',
+            'code' => Hash::make('123456'),
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $response = $this->postJson('/api/reset-password', [
+            'email' => 'somying@example.com', 'code' => '000000', 'new_password' => 'newpass456',
+        ]);
+
+        $response->assertStatus(422)->assertJson(['detail' => 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ']);
+        $this->assertTrue(Hash::check('secret123', Nurse::first()->password));
+    }
+
+    /** @test */
+    public function reset_password_rejects_an_expired_code()
+    {
+        Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+        PasswordResetCode::create([
+            'email' => 'somying@example.com',
+            'code' => Hash::make('123456'),
+            'expires_at' => now()->subMinute(),
+        ]);
+
+        $response = $this->postJson('/api/reset-password', [
+            'email' => 'somying@example.com', 'code' => '123456', 'new_password' => 'newpass456',
+        ]);
+
+        $response->assertStatus(422)->assertJson(['detail' => 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ']);
+    }
+
+    /** @test */
+    public function reset_password_code_cannot_be_reused_after_a_successful_reset()
+    {
+        Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+        PasswordResetCode::create([
+            'email' => 'somying@example.com',
+            'code' => Hash::make('123456'),
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $this->postJson('/api/reset-password', [
+            'email' => 'somying@example.com', 'code' => '123456', 'new_password' => 'newpass456',
+        ])->assertStatus(200);
+
+        $second = $this->postJson('/api/reset-password', [
+            'email' => 'somying@example.com', 'code' => '123456', 'new_password' => 'yetanother789',
+        ]);
+
+        $second->assertStatus(422)->assertJson(['detail' => 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ']);
+    }
+
+    // ---- profile / change-password (Sanctum-protected) ----
+
+    private function authHeader(Nurse $nurse): array
+    {
+        $token = $nurse->createToken('test')->plainTextToken;
+        return ['Authorization' => "Bearer {$token}"];
+    }
+
+    /** @test */
+    public function profile_update_requires_authentication()
+    {
+        $response = $this->putJson('/api/profile', [
+            'full_name' => 'X', 'username' => 'somying', 'email' => 'somying@example.com',
+        ]);
+
+        $response->assertStatus(401);
+    }
+
+    /** @test */
+    public function profile_update_changes_the_authenticated_nurses_own_data()
+    {
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->putJson('/api/profile', [
+            'full_name' => 'สมหญิง แก้ไขแล้ว', 'username' => 'somying2', 'email' => 'new@example.com',
+        ]);
+
+        $response->assertStatus(200)->assertJson([
+            'full_name' => 'สมหญิง แก้ไขแล้ว', 'username' => 'somying2', 'email' => 'new@example.com',
+        ]);
+        $this->assertSame('somying2', $nurse->fresh()->username);
+    }
+
+    /** @test */
+    public function profile_update_allows_keeping_ones_own_existing_username_and_email()
+    {
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->putJson('/api/profile', [
+            'full_name' => 'สมหญิง (แก้ชื่อ)', 'username' => 'somying', 'email' => 'somying@example.com',
+        ]);
+
+        $response->assertStatus(200);
+    }
+
+    /** @test */
+    public function profile_update_rejects_a_username_already_used_by_another_nurse()
+    {
+        Nurse::create([
+            'full_name' => 'คนอื่น', 'username' => 'other', 'email' => 'other@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-002',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->putJson('/api/profile', [
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'other', 'email' => 'somying@example.com',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('username');
+    }
+
+    /** @test */
+    public function change_password_requires_authentication()
+    {
+        $response = $this->postJson('/api/change-password', [
+            'current_password' => 'secret123', 'new_password' => 'newpass456',
+        ]);
+
+        $response->assertStatus(401);
+    }
+
+    /** @test */
+    public function change_password_succeeds_with_the_correct_current_password()
+    {
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->postJson('/api/change-password', [
+            'current_password' => 'secret123', 'new_password' => 'newpass456',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertTrue(Hash::check('newpass456', $nurse->fresh()->password));
+    }
+
+    /** @test */
+    public function change_password_rejects_an_incorrect_current_password()
+    {
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->postJson('/api/change-password', [
+            'current_password' => 'wrongpass', 'new_password' => 'newpass456',
+        ]);
+
+        $response->assertStatus(422)->assertJson(['detail' => 'รหัสผ่านปัจจุบันไม่ถูกต้อง']);
+        $this->assertTrue(Hash::check('secret123', $nurse->fresh()->password));
     }
 }
