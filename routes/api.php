@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DispenseController;
 use App\Http\Controllers\DispenseLogController;
+use App\Http\Controllers\MedicineCatalogController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\SlotController;
@@ -59,3 +60,8 @@ Route::post('/slots', [SlotController::class, 'store']);
 Route::put('/slots/{slot}/assign', [SlotController::class, 'assign']);
 Route::put('/slots/{slot}/clear', [SlotController::class, 'clear']);
 Route::get('/slots/{slot}/history', [SlotController::class, 'history']);
+
+Route::get('/medicine-catalog', [MedicineCatalogController::class, 'index']);
+Route::post('/medicine-catalog', [MedicineCatalogController::class, 'store']);
+Route::put('/medicine-catalog/{medicine}/favorite', [MedicineCatalogController::class, 'favorite']);
+Route::post('/medicine-catalog/bulk-import', [MedicineCatalogController::class, 'bulkImport']);
