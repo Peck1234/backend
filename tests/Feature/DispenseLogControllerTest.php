@@ -6,6 +6,7 @@ use App\Models\DispenseLog;
 use App\Models\Medication;
 use App\Models\Nurse;
 use App\Models\Patient;
+use App\Models\PatientMealCassette;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -22,8 +23,12 @@ class DispenseLogControllerTest extends TestCase
             'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
         ]);
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $cassette = PatientMealCassette::create([
+            'patient_id' => $patient->id, 'meal' => 'breakfast', 'qr_code' => "CASSETTE-{$patient->id}-breakfast",
+        ]);
         $medication = Medication::create([
-            'patient_id' => $patient->id, 'drug_name' => 'Paracetamol', 'dose' => '1',
+            'patient_id' => $patient->id, 'patient_meal_cassette_id' => $cassette->id,
+            'drug_name' => 'Paracetamol', 'dose' => '1',
             'qr_code_cassette' => 'CASSETTE-1',
         ]);
 

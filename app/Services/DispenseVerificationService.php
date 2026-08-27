@@ -2,54 +2,50 @@
 
 namespace App\Services;
 
-use App\Models\Medication;
 use App\Models\Nurse;
 use App\Models\Patient;
+use App\Models\PatientMealCassette;
 
-// Pure decision logic extracted from DispenseController::verify() so the
-// "given these entities, is this dispense correct?" rule can be unit tested
-// without a database - the controller still does the actual QR-to-model
-// lookups and the dispensed_at write, this class only decides the verdict.
-// Same checks, same order, same messages as before the extraction.
+// Pure decision logic for "given these entities, can we show/dispense this
+// cassette's medications?" - no DB writes, no QR-to-model lookups (the
+// controller does those). Cassette-level now, not per-medication: a QR scan
+// used to resolve straight to one drug, now it resolves to a meal that may
+// hold several, so the verdict is about the cassette as a whole. Per-drug
+// dispensed-today checks happen separately, per medication, in the actual
+// dispense step - a cassette can be legitimately re-scanned after some of
+// its drugs are already given today (e.g. a nurse comes back to give the
+// rest), so that's not a reason to reject the cassette match itself.
 class DispenseVerificationService
 {
-    public function evaluate(?Nurse $nurse, ?Patient $patient, ?Medication $medication): array
+    public function evaluateCassette(?Nurse $nurse, ?Patient $patient, ?PatientMealCassette $cassette): array
     {
         if (!$nurse) {
-            return $this->incorrect('ไม่พบข้อมูลพยาบาลจาก QR นี้', null);
+            return $this->incorrect('ไม่พบข้อมูลพยาบาลจาก QR นี้');
         }
 
         if (!$patient) {
-            return $this->incorrect('ไม่พบข้อมูลผู้ป่วยจาก QR นี้', null);
+            return $this->incorrect('ไม่พบข้อมูลผู้ป่วยจาก QR นี้');
         }
 
-        if (!$medication) {
-            return $this->incorrect('QR code ไม่ถูกต้อง', null);
+        if (!$cassette) {
+            return $this->incorrect('QR code ไม่ถูกต้อง');
         }
 
-        if ($medication->patient_id !== $patient->id) {
-            return $this->incorrect('ตลับยานี้ไม่ใช่ของผู้ป่วยรายนี้', $medication->drug_name);
-        }
-
-        if ($medication->isDispensedToday()) {
-            return $this->incorrect('ยานี้ถูกจ่ายไปแล้ววันนี้', $medication->drug_name);
+        if ($cassette->patient_id !== $patient->id) {
+            return $this->incorrect('ตลับยานี้ไม่ใช่ของผู้ป่วยรายนี้');
         }
 
         return [
             'result' => 'correct',
-            'drug_name' => $medication->drug_name,
-            'message' => 'จ่ายยาสำเร็จ',
-            'should_dispense' => true,
+            'message' => 'ตลับยาถูกต้อง',
         ];
     }
 
-    private function incorrect(string $message, ?string $drugName): array
+    private function incorrect(string $message): array
     {
         return [
             'result' => 'incorrect',
-            'drug_name' => $drugName,
             'message' => $message,
-            'should_dispense' => false,
         ];
     }
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Medication;
 use App\Models\Patient;
+use App\Models\PatientMealCassette;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -23,14 +24,28 @@ class ReminderControllerTest extends TestCase
         return Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'ward' => 'A', 'bed_no' => '1', 'qr_code_patient' => 'PATIENT-001']);
     }
 
+    // ReminderController reads time_slot straight off the medication row and
+    // doesn't care which meal it's in, but patient_meal_cassette_id is
+    // NOT NULL now - every medication needs *some* cassette to satisfy it.
+    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    {
+        return PatientMealCassette::create([
+            'patient_id' => $patient->id,
+            'meal' => $meal,
+            'qr_code' => "CASSETTE-{$patient->id}-{$meal}",
+        ]);
+    }
+
     /** @test */
     public function due_lists_only_medications_that_are_due_and_not_yet_dispensed()
     {
         Carbon::setTestNow(Carbon::parse('2026-08-14 13:00:00'));
         $patient = $this->makePatient();
+        $cassette = $this->makeCassette($patient);
 
         $due = Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => 'Due Drug',
             'dose' => '1 เม็ด',
             'qr_code_cassette' => 'CASSETTE-DUE',
@@ -38,6 +53,7 @@ class ReminderControllerTest extends TestCase
         ]);
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => 'Not Due Yet',
             'dose' => '1 เม็ด',
             'qr_code_cassette' => 'CASSETTE-NOTYET',
@@ -45,6 +61,7 @@ class ReminderControllerTest extends TestCase
         ]);
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => 'Already Dispensed',
             'dose' => '1 เม็ด',
             'qr_code_cassette' => 'CASSETTE-DONE',
@@ -67,8 +84,10 @@ class ReminderControllerTest extends TestCase
     {
         Carbon::setTestNow(Carbon::parse('2026-08-14 06:00:00'));
         $patient = $this->makePatient();
+        $cassette = $this->makeCassette($patient);
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => 'Later Drug',
             'dose' => '1 เม็ด',
             'qr_code_cassette' => 'CASSETTE-1',
@@ -85,9 +104,11 @@ class ReminderControllerTest extends TestCase
     {
         Carbon::setTestNow(Carbon::parse('2026-08-14 00:00:00'));
         $patient = $this->makePatient();
+        $cassette = $this->makeCassette($patient);
 
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => 'A',
             'dose' => '1 เม็ด',
             'qr_code_cassette' => 'CASSETTE-A',
@@ -95,6 +116,7 @@ class ReminderControllerTest extends TestCase
         ]);
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => 'B',
             'dose' => '1 เม็ด',
             'qr_code_cassette' => 'CASSETTE-B',
@@ -112,9 +134,11 @@ class ReminderControllerTest extends TestCase
     {
         Carbon::setTestNow(Carbon::parse('2026-08-14 12:00:00'));
         $patient = $this->makePatient();
+        $cassette = $this->makeCassette($patient);
 
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => 'Dispensed',
             'dose' => '1 เม็ด',
             'qr_code_cassette' => 'CASSETTE-DONE',

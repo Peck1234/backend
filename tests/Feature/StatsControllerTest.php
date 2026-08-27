@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\DispenseLog;
 use App\Models\Medication;
 use App\Models\Patient;
+use App\Models\PatientMealCassette;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -24,6 +25,15 @@ class StatsControllerTest extends TestCase
         return Patient::create(['full_name' => 'ผู้ป่วย ' . $qr, 'ward' => $ward, 'qr_code_patient' => $qr]);
     }
 
+    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    {
+        return PatientMealCassette::create([
+            'patient_id' => $patient->id,
+            'meal' => $meal,
+            'qr_code' => "CASSETTE-{$patient->id}-{$meal}",
+        ]);
+    }
+
     /** @test */
     public function index_reports_totals_dispensed_rate_and_breakdowns_by_slot_ward_and_drug()
     {
@@ -31,18 +41,23 @@ class StatsControllerTest extends TestCase
 
         $wardA = $this->makePatient('A', 'PATIENT-A');
         $wardB = $this->makePatient('B', 'PATIENT-B');
+        $cassetteA = $this->makeCassette($wardA);
+        $cassetteB = $this->makeCassette($wardB, 'lunch');
 
         Medication::create([
-            'patient_id' => $wardA->id, 'drug_name' => 'Paracetamol', 'dose' => '1',
+            'patient_id' => $wardA->id, 'patient_meal_cassette_id' => $cassetteA->id,
+            'drug_name' => 'Paracetamol', 'dose' => '1',
             'qr_code_cassette' => 'C1', 'time_slot' => '08:00',
             'dispensed_at' => Carbon::parse('2026-08-14 08:05:00'),
         ]);
         Medication::create([
-            'patient_id' => $wardA->id, 'drug_name' => 'Paracetamol', 'dose' => '1',
+            'patient_id' => $wardA->id, 'patient_meal_cassette_id' => $cassetteA->id,
+            'drug_name' => 'Paracetamol', 'dose' => '1',
             'qr_code_cassette' => 'C2', 'time_slot' => '08:00',
         ]);
         Medication::create([
-            'patient_id' => $wardB->id, 'drug_name' => 'Amoxicillin', 'dose' => '1',
+            'patient_id' => $wardB->id, 'patient_meal_cassette_id' => $cassetteB->id,
+            'drug_name' => 'Amoxicillin', 'dose' => '1',
             'qr_code_cassette' => 'C3', 'time_slot' => '12:00',
         ]);
 

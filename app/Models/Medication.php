@@ -12,6 +12,7 @@ class Medication extends Model
 
     protected $fillable = [
         'patient_id',
+        'patient_meal_cassette_id',
         'drug_name',
         'standard_dose',
         'purpose',
@@ -35,6 +36,11 @@ class Medication extends Model
     public function patient()
     {
         return $this->belongsTo(Patient::class);
+    }
+
+    public function mealCassette()
+    {
+        return $this->belongsTo(PatientMealCassette::class, 'patient_meal_cassette_id');
     }
 
     public function matchedDueTime(): ?string

@@ -21,6 +21,11 @@ class Patient extends Model
         return $this->hasMany(Medication::class);
     }
 
+    public function mealCassettes()
+    {
+        return $this->hasMany(PatientMealCassette::class);
+    }
+
     public function cartSlot()
     {
         return $this->hasOne(CartSlot::class, 'current_patient_id');

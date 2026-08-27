@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Medication;
 use App\Models\Patient;
+use App\Models\PatientMealCassette;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -50,7 +51,8 @@ class PatientController extends Controller
                     'dose' => $medication->dose,
                     'instruction' => $medication->instruction,
                     'time_slot' => $medication->time_slot,
-                    'qr_code_cassette' => $medication->qr_code_cassette,
+                    'meal' => optional($medication->mealCassette)->meal,
+                    'qr_code_cassette' => optional($medication->mealCassette)->qr_code,
                     'dispensed_at' => optional($medication->dispensed_at)->toIso8601String(),
                     'is_dispensed_today' => $medication->isDispensedToday(),
                     'is_due' => $medication->isDueNow(),
@@ -76,7 +78,8 @@ class PatientController extends Controller
                 ]);
 
                 foreach ($validated['medications'] ?? [] as $med) {
-                    $patient->medications()->create($this->medicationFields($med));
+                    $cassette = PatientMealCassette::getOrCreateFor($patient->id, $med['meal']);
+                    $patient->medications()->create($this->medicationFields($patient, $cassette, $med));
                 }
 
                 return $patient;
@@ -103,7 +106,12 @@ class PatientController extends Controller
 
                 $keepIds = [];
                 foreach ($validated['medications'] ?? [] as $med) {
-                    $fields = $this->medicationFields($med);
+                    // Re-resolve the cassette every time (not just for new
+                    // rows) - the nurse may have moved this drug to a
+                    // different meal, and get-or-create is cheap/idempotent
+                    // when the meal didn't actually change.
+                    $cassette = PatientMealCassette::getOrCreateFor($patient->id, $med['meal']);
+                    $fields = $this->medicationFields($patient, $cassette, $med);
 
                     if (!empty($med['id'])) {
                         $medication = Medication::where('patient_id', $patient->id)->findOrFail($med['id']);
@@ -140,21 +148,21 @@ class PatientController extends Controller
             'medications.*.purpose' => 'nullable|string|max:255',
             'medications.*.dose' => 'required_with:medications|string|max:255',
             'medications.*.instruction' => 'nullable|string|max:255',
-            'medications.*.time_slot' => 'nullable|string|max:255',
-            'medications.*.qr_code_cassette' => 'required_with:medications|string|max:255',
+            'medications.*.meal' => 'required_with:medications|in:' . implode(',', PatientMealCassette::MEALS),
         ]);
     }
 
-    private function medicationFields(array $med)
+    private function medicationFields(Patient $patient, PatientMealCassette $cassette, array $med)
     {
         return [
+            'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
             'drug_name' => $med['drug_name'],
             'standard_dose' => isset($med['standard_dose']) ? $med['standard_dose'] : null,
             'purpose' => isset($med['purpose']) ? $med['purpose'] : null,
             'dose' => $med['dose'],
             'instruction' => isset($med['instruction']) ? $med['instruction'] : null,
-            'time_slot' => isset($med['time_slot']) ? $med['time_slot'] : null,
-            'qr_code_cassette' => $med['qr_code_cassette'],
+            'time_slot' => PatientMealCassette::MEAL_TIMES[$med['meal']] ?? null,
         ];
     }
 }

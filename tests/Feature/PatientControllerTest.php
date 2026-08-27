@@ -5,12 +5,22 @@ namespace Tests\Feature;
 use App\Models\CartSlot;
 use App\Models\Medication;
 use App\Models\Patient;
+use App\Models\PatientMealCassette;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class PatientControllerTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    {
+        return PatientMealCassette::create([
+            'patient_id' => $patient->id,
+            'meal' => $meal,
+            'qr_code' => "CASSETTE-{$patient->id}-{$meal}",
+        ]);
+    }
 
     /** @test */
     public function index_lists_patients_with_slot_info_derived_from_cart_slots()
@@ -58,25 +68,28 @@ class PatientControllerTest extends TestCase
     public function medications_are_sorted_by_earliest_time_slot_and_include_due_status()
     {
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $evening = $this->makeCassette($patient, 'dinner');
+        $morning = $this->makeCassette($patient, 'breakfast');
+        $prn = $this->makeCassette($patient, 'prn');
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $evening->id,
             'drug_name' => 'Evening Drug',
             'dose' => '1 เม็ด',
-            'qr_code_cassette' => 'CASSETTE-EVENING',
             'time_slot' => '18:00',
         ]);
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $morning->id,
             'drug_name' => 'Morning Drug',
             'dose' => '1 เม็ด',
-            'qr_code_cassette' => 'CASSETTE-MORNING',
             'time_slot' => '08:00',
         ]);
         Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $prn->id,
             'drug_name' => 'PRN Drug',
             'dose' => '1 เม็ด',
-            'qr_code_cassette' => 'CASSETTE-PRN',
             'time_slot' => null,
         ]);
 
@@ -96,13 +109,18 @@ class PatientControllerTest extends TestCase
             'bed_no' => '2',
             'qr_code_patient' => 'PATIENT-NEW',
             'medications' => [
-                ['drug_name' => 'Paracetamol', 'dose' => '1 เม็ด', 'qr_code_cassette' => 'CASSETTE-1'],
+                ['drug_name' => 'Paracetamol', 'dose' => '1 เม็ด', 'meal' => 'breakfast'],
             ],
         ]);
 
         $response->assertStatus(201)->assertJsonStructure(['patient_id']);
         $this->assertDatabaseHas('patients', ['qr_code_patient' => 'PATIENT-NEW']);
-        $this->assertDatabaseHas('medications', ['qr_code_cassette' => 'CASSETTE-1', 'drug_name' => 'Paracetamol']);
+        $this->assertDatabaseHas('medications', ['drug_name' => 'Paracetamol', 'time_slot' => '08:00']);
+
+        $patientId = $response->json('patient_id');
+        $cassette = PatientMealCassette::where('patient_id', $patientId)->where('meal', 'breakfast')->first();
+        $this->assertNotNull($cassette, 'a breakfast cassette should have been get-or-created');
+        $this->assertSame("CASSETTE-{$patientId}-breakfast", $cassette->qr_code);
     }
 
     /** @test */
@@ -134,32 +152,59 @@ class PatientControllerTest extends TestCase
     public function update_replaces_the_patients_medication_list_keeping_ids_that_are_still_present()
     {
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $breakfast = $this->makeCassette($patient, 'breakfast');
         $keep = Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $breakfast->id,
             'drug_name' => 'Keep Me',
             'dose' => '1 เม็ด',
-            'qr_code_cassette' => 'CASSETTE-KEEP',
         ]);
         $drop = Medication::create([
             'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $breakfast->id,
             'drug_name' => 'Drop Me',
             'dose' => '1 เม็ด',
-            'qr_code_cassette' => 'CASSETTE-DROP',
         ]);
 
         $response = $this->putJson("/api/patients/{$patient->id}", [
             'full_name' => 'ผู้ป่วย ทดสอบ',
             'qr_code_patient' => 'PATIENT-001',
             'medications' => [
-                ['id' => $keep->id, 'drug_name' => 'Keep Me Updated', 'dose' => '2 เม็ด', 'qr_code_cassette' => 'CASSETTE-KEEP'],
-                ['drug_name' => 'New Drug', 'dose' => '1 เม็ด', 'qr_code_cassette' => 'CASSETTE-NEW'],
+                ['id' => $keep->id, 'drug_name' => 'Keep Me Updated', 'dose' => '2 เม็ด', 'meal' => 'breakfast'],
+                ['drug_name' => 'New Drug', 'dose' => '1 เม็ด', 'meal' => 'lunch'],
             ],
         ]);
 
         $response->assertStatus(200)->assertJson(['ok' => true]);
         $this->assertDatabaseHas('medications', ['id' => $keep->id, 'drug_name' => 'Keep Me Updated']);
         $this->assertDatabaseMissing('medications', ['id' => $drop->id]);
-        $this->assertDatabaseHas('medications', ['qr_code_cassette' => 'CASSETTE-NEW']);
+        $newDrug = Medication::where('drug_name', 'New Drug')->first();
+        $this->assertSame('lunch', $newDrug->mealCassette->meal);
+    }
+
+    /** @test */
+    public function update_moves_an_existing_medication_to_a_different_meal_cassette()
+    {
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $breakfast = $this->makeCassette($patient, 'breakfast');
+        $medication = Medication::create([
+            'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $breakfast->id,
+            'drug_name' => 'Moved Drug',
+            'dose' => '1 เม็ด',
+        ]);
+
+        $response = $this->putJson("/api/patients/{$patient->id}", [
+            'full_name' => 'ผู้ป่วย ทดสอบ',
+            'qr_code_patient' => 'PATIENT-001',
+            'medications' => [
+                ['id' => $medication->id, 'drug_name' => 'Moved Drug', 'dose' => '1 เม็ด', 'meal' => 'bedtime'],
+            ],
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame('bedtime', $medication->fresh()->mealCassette->meal);
+        $this->assertSame('21:00', $medication->fresh()->time_slot);
     }
 
     /** @test */
