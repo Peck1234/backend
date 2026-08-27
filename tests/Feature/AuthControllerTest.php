@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Models\Nurse;
 use App\Models\PasswordResetCode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 // Full HTTP-level coverage for /api/register and /api/login, running against
@@ -447,5 +449,122 @@ class AuthControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['detail' => 'รหัสผ่านปัจจุบันไม่ถูกต้อง']);
         $this->assertTrue(Hash::check('secret123', $nurse->fresh()->password));
+    }
+
+    // ---- profile photo upload ----
+
+    /** @test */
+    public function upload_profile_photo_requires_authentication()
+    {
+        $response = $this->postJson('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->image('photo.jpg'),
+        ]);
+
+        $response->assertStatus(401);
+    }
+
+    /** @test */
+    public function login_response_has_a_null_photo_url_when_no_photo_was_ever_uploaded()
+    {
+        Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->postJson('/api/login', ['username' => 'somying', 'password' => 'secret123']);
+
+        $response->assertStatus(200)->assertJson(['profile_photo_url' => null]);
+    }
+
+    /** @test */
+    public function upload_profile_photo_saves_the_file_and_returns_a_reachable_url()
+    {
+        Storage::fake('public');
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->postJson('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->image('photo.jpg', 300, 300),
+        ]);
+
+        $response->assertStatus(200);
+        $path = $nurse->fresh()->profile_photo_path;
+        $this->assertNotNull($path);
+        $this->assertStringStartsWith('profile-photos/nurse-' . $nurse->id . '-', $path);
+        Storage::disk('public')->assertExists($path);
+        $this->assertSame('http://localhost/storage/' . $path, $response->json('profile_photo_url'));
+    }
+
+    /** @test */
+    public function upload_profile_photo_deletes_the_previous_photo_after_saving_the_new_one()
+    {
+        Storage::fake('public');
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $first = $this->withHeaders($this->authHeader($nurse))->postJson('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->image('first.jpg'),
+        ]);
+        $firstPath = $nurse->fresh()->profile_photo_path;
+        Storage::disk('public')->assertExists($firstPath);
+
+        $this->withHeaders($this->authHeader($nurse))->postJson('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->image('second.jpg'),
+        ])->assertStatus(200);
+        $secondPath = $nurse->fresh()->profile_photo_path;
+
+        $this->assertNotSame($firstPath, $secondPath);
+        Storage::disk('public')->assertMissing($firstPath);
+        Storage::disk('public')->assertExists($secondPath);
+    }
+
+    /** @test */
+    public function upload_profile_photo_rejects_a_non_image_file()
+    {
+        Storage::fake('public');
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->postJson('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->create('document.pdf', 100, 'application/pdf'),
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('photo');
+        $this->assertNull($nurse->fresh()->profile_photo_path);
+    }
+
+    /** @test */
+    public function upload_profile_photo_rejects_a_file_larger_than_5mb()
+    {
+        Storage::fake('public');
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->postJson('/api/profile/photo', [
+            'photo' => UploadedFile::fake()->image('huge.jpg')->size(6000),
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('photo');
+    }
+
+    /** @test */
+    public function upload_profile_photo_rejects_a_missing_file()
+    {
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-001',
+        ]);
+
+        $response = $this->withHeaders($this->authHeader($nurse))->postJson('/api/profile/photo', []);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('photo');
     }
 }

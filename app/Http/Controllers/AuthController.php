@@ -9,6 +9,7 @@ use App\Support\NurseCodeGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
@@ -36,14 +37,9 @@ class AuthController extends Controller
 
         $token = $nurse->createToken('mobile-app')->plainTextToken;
 
-        return response()->json([
-            'nurse_id' => $nurse->id,
-            'full_name' => $nurse->full_name,
-            'username' => $nurse->username,
-            'email' => $nurse->email,
-            'qr_code_nurse' => $nurse->qr_code_nurse,
+        return response()->json(array_merge($this->nurseResponse($nurse), [
             'token' => $token,
-        ], 201);
+        ]), 201);
     }
 
     public function login(Request $request)
@@ -63,14 +59,9 @@ class AuthController extends Controller
 
         $token = $nurse->createToken('mobile-app')->plainTextToken;
 
-        return response()->json([
-            'nurse_id' => $nurse->id,
-            'full_name' => $nurse->full_name,
-            'username' => $nurse->username,
-            'email' => $nurse->email,
-            'qr_code_nurse' => $nurse->qr_code_nurse,
+        return response()->json(array_merge($this->nurseResponse($nurse), [
             'token' => $token,
-        ]);
+        ]));
     }
 
     // Always returns the same generic message whether or not the email is
@@ -157,13 +148,68 @@ class AuthController extends Controller
 
         $nurse->update($validated);
 
-        return response()->json([
+        return response()->json($this->nurseResponse($nurse));
+    }
+
+    public function uploadProfilePhoto(Request $request)
+    {
+        $nurse = $request->user();
+
+        $request->validate([
+            // `image` (not just `mimes`) rejects a renamed non-image file even
+            // if its extension is spoofed to .jpg/.png - it decodes actual
+            // image data via GD/Imagick, not just the file extension/MIME
+            // header a client claims. max is in kilobytes.
+            'photo' => 'required|image|mimes:jpg,jpeg,png|max:5120',
+        ], [
+            'photo.required' => 'กรุณาแนบไฟล์รูปภาพ',
+            'photo.image' => 'ไฟล์ที่แนบไม่ใช่รูปภาพที่ถูกต้อง',
+            'photo.mimes' => 'รองรับเฉพาะไฟล์ .jpg, .jpeg, .png',
+            'photo.max' => 'ไฟล์ต้องมีขนาดไม่เกิน 5MB',
+        ]);
+
+        $oldPath = $nurse->profile_photo_path;
+
+        // nurse_id + timestamp + a short random suffix - the random suffix
+        // guards against two uploads from the same nurse landing in the same
+        // second (double-tap, or two devices logged into one account) which
+        // timestamp alone wouldn't distinguish.
+        $filename = 'nurse-' . $nurse->id . '-' . now()->timestamp . '-' . Str::random(6)
+            . '.' . $request->file('photo')->extension();
+        $path = $request->file('photo')->storeAs('profile-photos', $filename, 'public');
+
+        $nurse->update(['profile_photo_path' => $path]);
+
+        // Only delete the old file after the new one is safely saved and the
+        // DB row committed - if storing the new file had failed, the nurse
+        // keeps their existing photo instead of ending up with none.
+        if ($oldPath) {
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        return response()->json($this->nurseResponse($nurse));
+    }
+
+    // Shared by register/login/updateProfile/uploadProfilePhoto so the nurse
+    // JSON shape (and profile_photo_url specifically) can't drift between
+    // them. Builds the photo URL from the CURRENT REQUEST's own host rather
+    // than the app's static APP_URL config (which is just "http://localhost"
+    // in this project's .env) - this backend gets reached through several
+    // different hosts depending on how the phone connects (LAN IP, Cloudflare
+    // tunnel domain, etc, per src/api.js on the frontend), and a URL built
+    // from a hardcoded localhost would only ever load from this machine.
+    private function nurseResponse(Nurse $nurse)
+    {
+        return [
             'nurse_id' => $nurse->id,
             'full_name' => $nurse->full_name,
             'username' => $nurse->username,
             'email' => $nurse->email,
             'qr_code_nurse' => $nurse->qr_code_nurse,
-        ]);
+            'profile_photo_url' => $nurse->profile_photo_path
+                ? request()->getSchemeAndHttpHost() . '/storage/' . $nurse->profile_photo_path
+                : null,
+        ];
     }
 
     public function changePassword(Request $request)

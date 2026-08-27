@@ -43,6 +43,7 @@ Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::put('/profile', [AuthController::class, 'updateProfile']);
+    Route::post('/profile/photo', [AuthController::class, 'uploadProfilePhoto']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
 });
 

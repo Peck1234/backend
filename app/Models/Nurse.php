@@ -23,6 +23,7 @@ class Nurse extends Model implements AuthenticatableContract
         'password',
         'full_name',
         'qr_code_nurse',
+        'profile_photo_path',
     ];
 
     protected $hidden = [
