@@ -21,7 +21,13 @@ class SlotAuditLog extends Model
         'synced_at',
     ];
 
+    // 'slot_id'/'staff_id' explicitly cast for the same reason as
+    // Medication::$casts - PHP's SQLite PDO driver (used by the test suite)
+    // returns non-primary-key INTEGER columns as strings, unlike MySQL,
+    // which would make a strict comparison against a real int id false-fail.
     protected $casts = [
+        'slot_id' => 'integer',
+        'staff_id' => 'integer',
         'before' => 'array',
         'after' => 'array',
         'occurred_at' => 'datetime',

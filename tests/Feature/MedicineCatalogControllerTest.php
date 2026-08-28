@@ -2,14 +2,48 @@
 
 namespace Tests\Feature;
 
+use App\Models\Medication;
 use App\Models\MedicineCatalog;
+use App\Models\Nurse;
+use App\Models\Patient;
+use App\Models\PatientMealCassette;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class MedicineCatalogControllerTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function makeNurse(): Nurse
+    {
+        return Nurse::create([
+            'full_name' => 'พยาบาล ทดสอบ',
+            'username' => 'nurse1',
+            'password' => Hash::make('secret123'),
+            'qr_code_nurse' => 'NURSE-001',
+        ]);
+    }
+
+    private function makePatientOnDrug(string $drugName, string $qr = 'PATIENT-001'): Patient
+    {
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => $qr]);
+        $cassette = PatientMealCassette::create([
+            'patient_id' => $patient->id,
+            'meal' => 'breakfast',
+            'qr_code' => "CASSETTE-{$patient->id}-breakfast",
+        ]);
+        Medication::create([
+            'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
+            'drug_name' => $drugName,
+            'dose' => '1 เม็ด',
+        ]);
+
+        return $patient;
+    }
 
     /** @test */
     public function index_returns_all_medicines_with_favorites_sorted_first()
@@ -134,5 +168,109 @@ class MedicineCatalogControllerTest extends TestCase
         $response = $this->postJson('/api/medicine-catalog/bulk-import', ['file' => $file]);
 
         $response->assertStatus(422)->assertJsonValidationErrors('file');
+    }
+
+    // ---- destroy ----
+
+    /** @test */
+    public function destroy_requires_authentication()
+    {
+        $medicine = MedicineCatalog::create(['drug_name' => 'Paracetamol']);
+
+        $response = $this->deleteJson("/api/medicine-catalog/{$medicine->id}");
+
+        $response->assertStatus(401);
+        $this->assertDatabaseHas('medicine_catalog', ['id' => $medicine->id]);
+    }
+
+    /** @test */
+    public function destroy_deletes_a_drug_nobody_is_using()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $medicine = MedicineCatalog::create(['drug_name' => 'Paracetamol']);
+
+        $response = $this->deleteJson("/api/medicine-catalog/{$medicine->id}");
+
+        $response->assertStatus(200)->assertJson(['ok' => true]);
+        $this->assertDatabaseMissing('medicine_catalog', ['id' => $medicine->id]);
+    }
+
+    /** @test */
+    public function destroy_without_force_asks_for_confirmation_when_patients_are_using_the_drug()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $medicine = MedicineCatalog::create(['drug_name' => 'Paracetamol']);
+        $this->makePatientOnDrug('Paracetamol', 'PATIENT-001');
+        $this->makePatientOnDrug('Paracetamol', 'PATIENT-002');
+
+        $response = $this->deleteJson("/api/medicine-catalog/{$medicine->id}");
+
+        $response->assertStatus(409)->assertJson([
+            'needs_confirmation' => true,
+            'patients_using_count' => 2,
+        ]);
+        $this->assertDatabaseHas('medicine_catalog', ['id' => $medicine->id]);
+    }
+
+    /** @test */
+    public function destroy_counts_each_patient_once_even_if_the_drug_is_in_more_than_one_of_their_meals()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $medicine = MedicineCatalog::create(['drug_name' => 'Paracetamol']);
+        $patient = $this->makePatientOnDrug('Paracetamol', 'PATIENT-001');
+        $lunchCassette = PatientMealCassette::create([
+            'patient_id' => $patient->id,
+            'meal' => 'lunch',
+            'qr_code' => "CASSETTE-{$patient->id}-lunch",
+        ]);
+        Medication::create([
+            'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $lunchCassette->id,
+            'drug_name' => 'Paracetamol',
+            'dose' => '1 เม็ด',
+        ]);
+
+        $response = $this->deleteJson("/api/medicine-catalog/{$medicine->id}");
+
+        $response->assertStatus(409)->assertJson(['patients_using_count' => 1]);
+    }
+
+    /** @test */
+    public function destroy_with_force_deletes_even_when_patients_are_using_the_drug()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $medicine = MedicineCatalog::create(['drug_name' => 'Paracetamol']);
+        $this->makePatientOnDrug('Paracetamol');
+
+        $response = $this->deleteJson("/api/medicine-catalog/{$medicine->id}?force=1");
+
+        $response->assertStatus(200)->assertJson(['ok' => true]);
+        $this->assertDatabaseMissing('medicine_catalog', ['id' => $medicine->id]);
+    }
+
+    /** @test */
+    public function destroy_never_touches_the_patients_own_medication_record()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $medicine = MedicineCatalog::create(['drug_name' => 'Paracetamol', 'standard_dose' => '500mg']);
+        $patient = $this->makePatientOnDrug('Paracetamol');
+        $medicationId = Medication::where('patient_id', $patient->id)->first()->id;
+
+        $this->deleteJson("/api/medicine-catalog/{$medicine->id}?force=1");
+
+        $this->assertDatabaseHas('medications', ['id' => $medicationId, 'drug_name' => 'Paracetamol']);
+    }
+
+    /** @test */
+    public function destroy_ignores_usage_by_a_patient_who_has_since_been_deleted()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $medicine = MedicineCatalog::create(['drug_name' => 'Paracetamol']);
+        $patient = $this->makePatientOnDrug('Paracetamol');
+        $patient->delete();
+
+        $response = $this->deleteJson("/api/medicine-catalog/{$medicine->id}");
+
+        $response->assertStatus(200)->assertJson(['ok' => true]);
     }
 }

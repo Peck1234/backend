@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CartSlot;
 use App\Models\Medication;
 use App\Models\Patient;
 use App\Models\PatientMealCassette;
+use App\Models\SlotAuditLog;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class PatientController extends Controller
 {
@@ -130,6 +133,62 @@ class PatientController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    // Soft-deletes a patient. If they're currently holding a cart slot, that
+    // slot is cleared first (same field updates SlotController::clear() makes,
+    // logged the same way) so the slot doesn't end up permanently stuck
+    // "occupied" by a patient nobody can assign away anymore. Both steps run
+    // in one transaction - a failure clearing the slot must not leave the
+    // patient half-deleted, and vice versa.
+    public function destroy(Request $request, Patient $patient)
+    {
+        $slotCleared = DB::transaction(function () use ($request, $patient) {
+            $slot = CartSlot::where('current_patient_id', $patient->id)->first();
+            $cleared = false;
+
+            if ($slot) {
+                $before = [
+                    'status' => $slot->status,
+                    'current_patient_id' => $slot->current_patient_id,
+                    'version' => $slot->version,
+                ];
+
+                $slot->update([
+                    'status' => 'empty',
+                    'current_patient_id' => null,
+                    'occupied_at' => null,
+                    'version' => $slot->version + 1,
+                ]);
+
+                SlotAuditLog::create([
+                    'client_log_id' => (string) Str::uuid(),
+                    'slot_id' => $slot->id,
+                    'staff_id' => optional($request->user())->id,
+                    'action' => 'discharge',
+                    'before' => $before,
+                    // 'reason' distinguishes this from a nurse-initiated
+                    // clear in the slot's own history view - the patient
+                    // this slot held no longer exists, not just "moved out".
+                    'after' => [
+                        'status' => 'empty',
+                        'current_patient_id' => null,
+                        'version' => $slot->version,
+                        'reason' => 'patient_deleted',
+                    ],
+                    'occurred_at' => now(),
+                    'synced_at' => now(),
+                ]);
+
+                $cleared = true;
+            }
+
+            $patient->delete();
+
+            return $cleared;
+        });
+
+        return response()->json(['ok' => true, 'slot_cleared' => $slotCleared]);
     }
 
     private function validatePayload(Request $request, ?Patient $patient = null)

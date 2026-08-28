@@ -51,6 +51,7 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/patients', [PatientController::class, 'index']);
 Route::post('/patients', [PatientController::class, 'store']);
 Route::put('/patients/{patient}', [PatientController::class, 'update']);
+Route::middleware('auth:sanctum')->delete('/patients/{patient}', [PatientController::class, 'destroy']);
 Route::get('/patients/{patient}/medications', [PatientController::class, 'medications']);
 Route::get('/patients/{patient}/meal-cassettes', [PatientMealCassetteController::class, 'index']);
 Route::get('/patients/{patient}/meal-cassettes/{cassette}', [PatientMealCassetteController::class, 'show']);
@@ -72,4 +73,5 @@ Route::get('/slots/{slot}/history', [SlotController::class, 'history']);
 Route::get('/medicine-catalog', [MedicineCatalogController::class, 'index']);
 Route::post('/medicine-catalog', [MedicineCatalogController::class, 'store']);
 Route::put('/medicine-catalog/{medicine}/favorite', [MedicineCatalogController::class, 'favorite']);
+Route::middleware('auth:sanctum')->delete('/medicine-catalog/{medicine}', [MedicineCatalogController::class, 'destroy']);
 Route::post('/medicine-catalog/bulk-import', [MedicineCatalogController::class, 'bulkImport']);

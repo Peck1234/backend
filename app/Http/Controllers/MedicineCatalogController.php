@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Imports\MedicineCatalogImport;
+use App\Models\Medication;
 use App\Models\MedicineCatalog;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -61,6 +62,41 @@ class MedicineCatalogController extends Controller
         $medicine->save();
 
         return response()->json($medicine);
+    }
+
+    // Removing a catalog entry never touches any patient's existing
+    // medication rows - those keep their own copy of drug_name/standard_dose/
+    // purpose (there is no medicine_catalog_id FK on medications at all; a
+    // nurse assigning a drug just copies these fields at that moment). This
+    // only takes the entry out of future autocomplete/search results.
+    //
+    // "In use" is necessarily a drug_name string match, not a real join -
+    // the schema has nothing more precise to check against. drug_name is
+    // unique in medicine_catalog, so a match is a reasonably strong signal,
+    // just not a guaranteed one (a nurse could free-type an identical name
+    // without ever touching the catalog).
+    public function destroy(Request $request, MedicineCatalog $medicine)
+    {
+        $force = $request->boolean('force');
+
+        $patientsUsingCount = Medication::where('drug_name', $medicine->drug_name)
+            // whereHas('patient') implicitly respects Patient's SoftDeletes
+            // scope - a patient who no longer exists shouldn't block this.
+            ->whereHas('patient')
+            ->distinct('patient_id')
+            ->count('patient_id');
+
+        if ($patientsUsingCount > 0 && !$force) {
+            return response()->json([
+                'detail' => "ยา \"{$medicine->drug_name}\" กำลังถูกใช้งานอยู่โดยผู้ป่วย {$patientsUsingCount} ราย ยืนยันการลบหรือไม่?",
+                'needs_confirmation' => true,
+                'patients_using_count' => $patientsUsingCount,
+            ], 409);
+        }
+
+        $medicine->delete();
+
+        return response()->json(['ok' => true]);
     }
 
     public function bulkImport(Request $request)

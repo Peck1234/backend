@@ -4,9 +4,13 @@ namespace Tests\Feature;
 
 use App\Models\CartSlot;
 use App\Models\Medication;
+use App\Models\Nurse;
 use App\Models\Patient;
 use App\Models\PatientMealCassette;
+use App\Models\SlotAuditLog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class PatientControllerTest extends TestCase
@@ -19,6 +23,16 @@ class PatientControllerTest extends TestCase
             'patient_id' => $patient->id,
             'meal' => $meal,
             'qr_code' => "CASSETTE-{$patient->id}-{$meal}",
+        ]);
+    }
+
+    private function makeNurse(): Nurse
+    {
+        return Nurse::create([
+            'full_name' => 'พยาบาล ทดสอบ',
+            'username' => 'nurse1',
+            'password' => Hash::make('secret123'),
+            'qr_code_nurse' => 'NURSE-001',
         ]);
     }
 
@@ -233,5 +247,119 @@ class PatientControllerTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertSame('ผู้ป่วย ทดสอบ (แก้ชื่อ)', $patient->fresh()->full_name);
+    }
+
+    // ---- destroy ----
+
+    /** @test */
+    public function destroy_requires_authentication()
+    {
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+
+        $response = $this->deleteJson("/api/patients/{$patient->id}");
+
+        $response->assertStatus(401);
+        $this->assertNotSoftDeleted('patients', ['id' => $patient->id]);
+    }
+
+    /** @test */
+    public function destroy_soft_deletes_a_patient_with_no_slot()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+
+        $response = $this->deleteJson("/api/patients/{$patient->id}");
+
+        $response->assertStatus(200)->assertJson(['ok' => true, 'slot_cleared' => false]);
+        $this->assertSoftDeleted('patients', ['id' => $patient->id]);
+    }
+
+    /** @test */
+    public function destroy_clears_the_patients_cart_slot_first()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $slot = CartSlot::create([
+            'slot_code' => 'SLOT-0001',
+            'status' => 'occupied',
+            'current_patient_id' => $patient->id,
+            'version' => 1,
+            'occupied_at' => now(),
+        ]);
+
+        $response = $this->deleteJson("/api/patients/{$patient->id}");
+
+        $response->assertStatus(200)->assertJson(['ok' => true, 'slot_cleared' => true]);
+        $this->assertSoftDeleted('patients', ['id' => $patient->id]);
+        $slot->refresh();
+        $this->assertSame('empty', $slot->status);
+        $this->assertNull($slot->current_patient_id);
+        $this->assertSame(2, $slot->version);
+    }
+
+    /** @test */
+    public function destroy_logs_the_slot_clear_as_caused_by_patient_deletion()
+    {
+        $nurse = $this->makeNurse();
+        Sanctum::actingAs($nurse);
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $slot = CartSlot::create([
+            'slot_code' => 'SLOT-0001',
+            'status' => 'occupied',
+            'current_patient_id' => $patient->id,
+            'version' => 1,
+        ]);
+
+        $this->deleteJson("/api/patients/{$patient->id}");
+
+        $log = SlotAuditLog::where('slot_id', $slot->id)->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertSame('discharge', $log->action);
+        $this->assertSame($nurse->id, $log->staff_id);
+        $this->assertSame('patient_deleted', $log->after['reason']);
+    }
+
+    /** @test */
+    public function destroy_keeps_the_patients_medications_and_dispense_history_in_the_database()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $cassette = $this->makeCassette($patient);
+        $medication = Medication::create([
+            'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
+            'drug_name' => 'Paracetamol',
+            'dose' => '1 เม็ด',
+        ]);
+
+        $this->deleteJson("/api/patients/{$patient->id}");
+
+        $this->assertDatabaseHas('medications', ['id' => $medication->id, 'patient_id' => $patient->id]);
+        $this->assertDatabaseHas('patient_meal_cassettes', ['id' => $cassette->id]);
+    }
+
+    /** @test */
+    public function destroy_removes_the_patient_from_the_index_listing()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+
+        $this->deleteJson("/api/patients/{$patient->id}");
+        $response = $this->getJson('/api/patients');
+
+        $response->assertStatus(200);
+        $response->assertJsonMissing(['patient_id' => $patient->id]);
+    }
+
+    /** @test */
+    public function destroy_404s_for_an_already_deleted_patient()
+    {
+        Sanctum::actingAs($this->makeNurse());
+        $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
+        $patient->delete();
+
+        $response = $this->deleteJson("/api/patients/{$patient->id}");
+
+        $response->assertStatus(404);
     }
 }
