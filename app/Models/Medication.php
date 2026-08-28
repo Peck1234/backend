@@ -23,14 +23,16 @@ class Medication extends Model
         'dispensed_at',
     ];
 
-    // 'patient_id' is explicitly cast for the same reason as CartSlot::$version -
-    // PHP's SQLite PDO driver (used by the test suite) returns non-primary-key
-    // INTEGER columns as strings, unlike the MySQL driver used in production,
-    // which would make DispenseVerificationService's strict patient_id
-    // comparison see "1" !== 1 and report a false patient mismatch.
+    // 'patient_id'/'patient_meal_cassette_id' are explicitly cast for the same
+    // reason as CartSlot::$version - PHP's SQLite PDO driver (used by the test
+    // suite) returns non-primary-key INTEGER columns as strings, unlike the
+    // MySQL driver used in production, which would make strict comparisons
+    // (DispenseVerificationService's patient_id check, PatientMealCassetteController's
+    // ownership checks) see e.g. "1" !== 1 and report a false mismatch.
     protected $casts = [
         'dispensed_at' => 'datetime',
         'patient_id' => 'integer',
+        'patient_meal_cassette_id' => 'integer',
     ];
 
     public function patient()

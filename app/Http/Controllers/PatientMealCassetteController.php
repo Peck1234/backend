@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Medication;
 use App\Models\Patient;
 use App\Models\PatientMealCassette;
 use Illuminate\Http\Request;
@@ -67,6 +68,52 @@ class PatientMealCassetteController extends Controller
         // print/save-QR screen.
         $cassette->load('medications');
         return response()->json($this->cassetteResponse($cassette, $isNew), 201);
+    }
+
+    // Single-cassette detail view - lets the nurse open one QR card (from
+    // PatientQrCodesScreen) and see exactly what's inside it, without
+    // fetching every cassette the patient has via index().
+    public function show(Patient $patient, PatientMealCassette $cassette)
+    {
+        abort_unless($cassette->patient_id === $patient->id, 404);
+
+        return response()->json($this->cassetteResponse($cassette->load('medications')));
+    }
+
+    // Edits one drug already inside a cassette - deliberately scoped to just
+    // this medication (unlike PatientController::update(), which treats its
+    // whole `medications` payload as authoritative and deletes anything
+    // omitted). Does not touch `meal`/which cassette this drug belongs to -
+    // moving a drug between meals stays in the full patient-edit flow.
+    public function updateMedicine(Request $request, Patient $patient, PatientMealCassette $cassette, Medication $medication)
+    {
+        abort_unless($cassette->patient_id === $patient->id, 404);
+        abort_unless($medication->patient_meal_cassette_id === $cassette->id, 404);
+
+        $validated = $request->validate([
+            'drug_name' => 'required|string|max:255',
+            'standard_dose' => 'nullable|string|max:255',
+            'purpose' => 'nullable|string|max:255',
+            'dose' => 'required|string|max:255',
+            'instruction' => 'nullable|string|max:255',
+        ]);
+
+        $medication->update($validated);
+
+        return response()->json($this->cassetteResponse($cassette->fresh('medications')));
+    }
+
+    // Removes one drug from a cassette - the cassette itself (and its QR)
+    // stays even if this empties it out, since the QR is permanent per the
+    // architecture (a nurse may add a different drug back into it later).
+    public function removeMedicine(Patient $patient, PatientMealCassette $cassette, Medication $medication)
+    {
+        abort_unless($cassette->patient_id === $patient->id, 404);
+        abort_unless($medication->patient_meal_cassette_id === $cassette->id, 404);
+
+        $medication->delete();
+
+        return response()->json($this->cassetteResponse($cassette->fresh('medications')));
     }
 
     private function cassetteResponse(PatientMealCassette $cassette, ?bool $isNew = null)
