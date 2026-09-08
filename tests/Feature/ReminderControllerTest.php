@@ -27,7 +27,7 @@ class ReminderControllerTest extends TestCase
     // ReminderController reads time_slot straight off the medication row and
     // doesn't care which meal it's in, but patient_meal_cassette_id is
     // NOT NULL now - every medication needs *some* cassette to satisfy it.
-    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    private function makeCassette(Patient $patient, string $meal = 'breakfast_before'): PatientMealCassette
     {
         return PatientMealCassette::create([
             'patient_id' => $patient->id,

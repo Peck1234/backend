@@ -32,8 +32,8 @@ class MedicineCatalogControllerTest extends TestCase
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => $qr]);
         $cassette = PatientMealCassette::create([
             'patient_id' => $patient->id,
-            'meal' => 'breakfast',
-            'qr_code' => "CASSETTE-{$patient->id}-breakfast",
+            'meal' => 'breakfast_before',
+            'qr_code' => "CASSETTE-{$patient->id}-breakfast_before",
         ]);
         Medication::create([
             'patient_id' => $patient->id,
@@ -220,8 +220,8 @@ class MedicineCatalogControllerTest extends TestCase
         $patient = $this->makePatientOnDrug('Paracetamol', 'PATIENT-001');
         $lunchCassette = PatientMealCassette::create([
             'patient_id' => $patient->id,
-            'meal' => 'lunch',
-            'qr_code' => "CASSETTE-{$patient->id}-lunch",
+            'meal' => 'lunch_before',
+            'qr_code' => "CASSETTE-{$patient->id}-lunch_before",
         ]);
         Medication::create([
             'patient_id' => $patient->id,

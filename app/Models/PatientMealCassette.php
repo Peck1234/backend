@@ -8,23 +8,38 @@ use Illuminate\Database\Eloquent\Model;
 // One row per (patient, meal) pair, created once via get-or-create the first
 // time a drug is assigned to that meal. qr_code is permanent - it never
 // changes for the lifetime of this cassette, only the medications attached
-// to it change. 'prn' is a 5th pseudo-meal for as-needed medications that
-// don't belong on any of the 4 fixed daily rounds.
+// to it change. Each of the 4 real daily rounds is split into before/after
+// food (8 values), plus 'prn' as a 9th pseudo-meal for as-needed medications
+// that don't belong on any fixed round. See MEAL-CASSETTE-API-SPEC.md,
+// "การเปลี่ยนแปลง 2026-09-02" - frontend (c:\my-app) ships this same 9-value
+// list in src/constants/meals.js and the two must match exactly.
 class PatientMealCassette extends Model
 {
     use HasFactory;
 
-    public const MEALS = ['breakfast', 'lunch', 'dinner', 'bedtime', 'prn'];
+    public const MEALS = [
+        'breakfast_before', 'breakfast_after',
+        'lunch_before', 'lunch_after',
+        'dinner_before', 'dinner_after',
+        'bedtime_before', 'bedtime_after',
+        'prn',
+    ];
 
     // Canonical clock time each fixed meal round happens at - used to derive
-    // medications.time_slot for reminder scheduling. 'prn' deliberately has
-    // no entry: it's never due at a fixed time, so it's excluded from
-    // reminders entirely rather than assigned an arbitrary one.
+    // medications.time_slot for reminder scheduling. +-30min around the old
+    // single meal times (breakfast 08:00, lunch 12:00, dinner 18:00, bedtime
+    // 21:00). 'prn' deliberately has no entry: it's never due at a fixed
+    // time, so it's excluded from reminders entirely rather than assigned an
+    // arbitrary one.
     public const MEAL_TIMES = [
-        'breakfast' => '08:00',
-        'lunch' => '12:00',
-        'dinner' => '18:00',
-        'bedtime' => '21:00',
+        'breakfast_before' => '07:30',
+        'breakfast_after' => '08:30',
+        'lunch_before' => '11:30',
+        'lunch_after' => '12:30',
+        'dinner_before' => '17:30',
+        'dinner_after' => '18:30',
+        'bedtime_before' => '20:30',
+        'bedtime_after' => '21:30',
     ];
 
     protected $fillable = [

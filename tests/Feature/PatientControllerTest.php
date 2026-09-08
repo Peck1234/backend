@@ -17,7 +17,7 @@ class PatientControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    private function makeCassette(Patient $patient, string $meal = 'breakfast_before'): PatientMealCassette
     {
         return PatientMealCassette::create([
             'patient_id' => $patient->id,
@@ -82,8 +82,8 @@ class PatientControllerTest extends TestCase
     public function medications_are_sorted_by_earliest_time_slot_and_include_due_status()
     {
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
-        $evening = $this->makeCassette($patient, 'dinner');
-        $morning = $this->makeCassette($patient, 'breakfast');
+        $evening = $this->makeCassette($patient, 'dinner_before');
+        $morning = $this->makeCassette($patient, 'breakfast_before');
         $prn = $this->makeCassette($patient, 'prn');
         Medication::create([
             'patient_id' => $patient->id,
@@ -123,18 +123,18 @@ class PatientControllerTest extends TestCase
             'bed_no' => '2',
             'qr_code_patient' => 'PATIENT-NEW',
             'medications' => [
-                ['drug_name' => 'Paracetamol', 'dose' => '1 เม็ด', 'meal' => 'breakfast'],
+                ['drug_name' => 'Paracetamol', 'dose' => '1 เม็ด', 'meal' => 'breakfast_before'],
             ],
         ]);
 
         $response->assertStatus(201)->assertJsonStructure(['patient_id']);
         $this->assertDatabaseHas('patients', ['qr_code_patient' => 'PATIENT-NEW']);
-        $this->assertDatabaseHas('medications', ['drug_name' => 'Paracetamol', 'time_slot' => '08:00']);
+        $this->assertDatabaseHas('medications', ['drug_name' => 'Paracetamol', 'time_slot' => '07:30']);
 
         $patientId = $response->json('patient_id');
-        $cassette = PatientMealCassette::where('patient_id', $patientId)->where('meal', 'breakfast')->first();
-        $this->assertNotNull($cassette, 'a breakfast cassette should have been get-or-created');
-        $this->assertSame("CASSETTE-{$patientId}-breakfast", $cassette->qr_code);
+        $cassette = PatientMealCassette::where('patient_id', $patientId)->where('meal', 'breakfast_before')->first();
+        $this->assertNotNull($cassette, 'a breakfast_before cassette should have been get-or-created');
+        $this->assertSame("CASSETTE-{$patientId}-breakfast_before", $cassette->qr_code);
     }
 
     /** @test */
@@ -166,7 +166,7 @@ class PatientControllerTest extends TestCase
     public function update_replaces_the_patients_medication_list_keeping_ids_that_are_still_present()
     {
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
-        $breakfast = $this->makeCassette($patient, 'breakfast');
+        $breakfast = $this->makeCassette($patient, 'breakfast_before');
         $keep = Medication::create([
             'patient_id' => $patient->id,
             'patient_meal_cassette_id' => $breakfast->id,
@@ -184,8 +184,8 @@ class PatientControllerTest extends TestCase
             'full_name' => 'ผู้ป่วย ทดสอบ',
             'qr_code_patient' => 'PATIENT-001',
             'medications' => [
-                ['id' => $keep->id, 'drug_name' => 'Keep Me Updated', 'dose' => '2 เม็ด', 'meal' => 'breakfast'],
-                ['drug_name' => 'New Drug', 'dose' => '1 เม็ด', 'meal' => 'lunch'],
+                ['id' => $keep->id, 'drug_name' => 'Keep Me Updated', 'dose' => '2 เม็ด', 'meal' => 'breakfast_before'],
+                ['drug_name' => 'New Drug', 'dose' => '1 เม็ด', 'meal' => 'lunch_before'],
             ],
         ]);
 
@@ -193,14 +193,14 @@ class PatientControllerTest extends TestCase
         $this->assertDatabaseHas('medications', ['id' => $keep->id, 'drug_name' => 'Keep Me Updated']);
         $this->assertDatabaseMissing('medications', ['id' => $drop->id]);
         $newDrug = Medication::where('drug_name', 'New Drug')->first();
-        $this->assertSame('lunch', $newDrug->mealCassette->meal);
+        $this->assertSame('lunch_before', $newDrug->mealCassette->meal);
     }
 
     /** @test */
     public function update_moves_an_existing_medication_to_a_different_meal_cassette()
     {
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
-        $breakfast = $this->makeCassette($patient, 'breakfast');
+        $breakfast = $this->makeCassette($patient, 'breakfast_before');
         $medication = Medication::create([
             'patient_id' => $patient->id,
             'patient_meal_cassette_id' => $breakfast->id,
@@ -212,13 +212,13 @@ class PatientControllerTest extends TestCase
             'full_name' => 'ผู้ป่วย ทดสอบ',
             'qr_code_patient' => 'PATIENT-001',
             'medications' => [
-                ['id' => $medication->id, 'drug_name' => 'Moved Drug', 'dose' => '1 เม็ด', 'meal' => 'bedtime'],
+                ['id' => $medication->id, 'drug_name' => 'Moved Drug', 'dose' => '1 เม็ด', 'meal' => 'bedtime_before'],
             ],
         ]);
 
         $response->assertStatus(200);
-        $this->assertSame('bedtime', $medication->fresh()->mealCassette->meal);
-        $this->assertSame('21:00', $medication->fresh()->time_slot);
+        $this->assertSame('bedtime_before', $medication->fresh()->mealCassette->meal);
+        $this->assertSame('20:30', $medication->fresh()->time_slot);
     }
 
     /** @test */

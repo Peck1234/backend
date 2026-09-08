@@ -24,7 +24,7 @@ class DispenseLogControllerTest extends TestCase
         ]);
         $patient = Patient::create(['full_name' => 'ผู้ป่วย ทดสอบ', 'qr_code_patient' => 'PATIENT-001']);
         $cassette = PatientMealCassette::create([
-            'patient_id' => $patient->id, 'meal' => 'breakfast', 'qr_code' => "CASSETTE-{$patient->id}-breakfast",
+            'patient_id' => $patient->id, 'meal' => 'breakfast_before', 'qr_code' => "CASSETTE-{$patient->id}-breakfast_before",
         ]);
         $medication = Medication::create([
             'patient_id' => $patient->id, 'patient_meal_cassette_id' => $cassette->id,

@@ -22,7 +22,7 @@ class PatientMealCassetteControllerTest extends TestCase
         ]);
     }
 
-    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    private function makeCassette(Patient $patient, string $meal = 'breakfast_before'): PatientMealCassette
     {
         return PatientMealCassette::create([
             'patient_id' => $patient->id,
@@ -41,6 +41,99 @@ class PatientMealCassetteControllerTest extends TestCase
         ]);
     }
 
+    // ---- assignMedicine ----
+    //
+    // No test previously covered this endpoint at all (confirmed by grepping
+    // the whole test suite for 'assign-medicine' before writing these) even
+    // though it's the core new catalog-driven flow. Added alongside the
+    // 2026-09-02 meal expansion (5 -> 9 values, splitting each real meal into
+    // before/after food) specifically to prove that split behaves correctly,
+    // since that's the one thing that's genuinely new/risky here - the
+    // get-or-create + validation machinery itself was already covered
+    // indirectly by other tests using meal fixtures.
+
+    /** @test */
+    public function assign_medicine_treats_before_and_after_food_as_two_separate_cassettes()
+    {
+        $patient = $this->makePatient();
+
+        $before = $this->postJson("/api/patients/{$patient->id}/meal-cassettes/assign-medicine", [
+            'meal' => 'breakfast_before',
+            'drug_name' => 'Metformin',
+            'dose' => '1 tab',
+        ]);
+        $after = $this->postJson("/api/patients/{$patient->id}/meal-cassettes/assign-medicine", [
+            'meal' => 'breakfast_after',
+            'drug_name' => 'Paracetamol',
+            'dose' => '1 tab',
+        ]);
+
+        $before->assertStatus(201)->assertJson([
+            'meal' => 'breakfast_before',
+            'qr_code' => "CASSETTE-{$patient->id}-breakfast_before",
+            'is_new' => true,
+        ]);
+        $after->assertStatus(201)->assertJson([
+            'meal' => 'breakfast_after',
+            'qr_code' => "CASSETTE-{$patient->id}-breakfast_after",
+            'is_new' => true,
+        ]);
+
+        // Two distinct cassette rows, not one shared "breakfast" cassette -
+        // the whole point of the before/after split.
+        $this->assertNotSame($before->json('cassette_id'), $after->json('cassette_id'));
+        $this->assertSame(2, PatientMealCassette::where('patient_id', $patient->id)->count());
+    }
+
+    /** @test */
+    public function assign_medicine_reuses_the_same_cassette_for_a_second_drug_in_the_same_before_after_slot()
+    {
+        $patient = $this->makePatient();
+
+        $first = $this->postJson("/api/patients/{$patient->id}/meal-cassettes/assign-medicine", [
+            'meal' => 'dinner_after', 'drug_name' => 'Metformin', 'dose' => '1 tab',
+        ]);
+        $second = $this->postJson("/api/patients/{$patient->id}/meal-cassettes/assign-medicine", [
+            'meal' => 'dinner_after', 'drug_name' => 'Simvastatin', 'dose' => '1 tab',
+        ]);
+
+        $second->assertStatus(201)->assertJson(['is_new' => false]);
+        $this->assertSame($first->json('cassette_id'), $second->json('cassette_id'));
+        $this->assertSame(1, PatientMealCassette::where('patient_id', $patient->id)->count());
+        $this->assertCount(2, $second->json('medications'));
+    }
+
+    /** @test */
+    public function assign_medicine_rejects_a_pre_expansion_meal_value_that_no_longer_exists()
+    {
+        $patient = $this->makePatient();
+
+        // 'breakfast' (undifferentiated) was replaced by 'breakfast_before'/
+        // 'breakfast_after' in the 2026-09-02 enum expansion - it must no
+        // longer validate.
+        $response = $this->postJson("/api/patients/{$patient->id}/meal-cassettes/assign-medicine", [
+            'meal' => 'breakfast', 'drug_name' => 'Paracetamol', 'dose' => '1 tab',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['meal']);
+    }
+
+    /** @test */
+    public function assign_medicine_accepts_prn_unchanged_by_the_before_after_split()
+    {
+        $patient = $this->makePatient();
+
+        $response = $this->postJson("/api/patients/{$patient->id}/meal-cassettes/assign-medicine", [
+            'meal' => 'prn', 'drug_name' => 'Ibuprofen', 'dose' => '1 tab',
+        ]);
+
+        $response->assertStatus(201)->assertJson([
+            'meal' => 'prn',
+            'qr_code' => "CASSETTE-{$patient->id}-prn",
+            'is_new' => true,
+        ]);
+    }
+
     // ---- show ----
 
     /** @test */
@@ -54,7 +147,7 @@ class PatientMealCassetteControllerTest extends TestCase
 
         $response->assertStatus(200)->assertJson([
             'cassette_id' => $cassette->id,
-            'meal' => 'breakfast',
+            'meal' => 'breakfast_before',
             'qr_code' => $cassette->qr_code,
             'medications' => [
                 ['order_id' => $med->id, 'drug_name' => 'Paracetamol'],
@@ -127,8 +220,8 @@ class PatientMealCassetteControllerTest extends TestCase
     public function update_medicine_404s_when_the_medication_belongs_to_a_different_cassette()
     {
         $patient = $this->makePatient();
-        $cassette = $this->makeCassette($patient, 'breakfast');
-        $otherCassette = $this->makeCassette($patient, 'lunch');
+        $cassette = $this->makeCassette($patient, 'breakfast_before');
+        $otherCassette = $this->makeCassette($patient, 'lunch_before');
         $med = $this->makeMedication($otherCassette, 'Paracetamol');
 
         $response = $this->putJson(

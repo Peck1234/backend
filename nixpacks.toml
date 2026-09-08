@@ -1,0 +1,17 @@
+# Railway deployment config (Nixpacks build system).
+# Installs PHP deps, caches config, runs migrations, then serves the app
+# with PHP's built-in server bound to Railway's dynamically assigned $PORT.
+[phases.setup]
+nixPkgs = ["php81", "php81Packages.composer"]
+
+[phases.install]
+cmds = ["composer install --no-dev --optimize-autoloader --no-interaction"]
+
+[phases.build]
+cmds = [
+  "php artisan config:clear",
+  "php artisan storage:link --force"
+]
+
+[start]
+cmd = "php artisan migrate --force && php -S 0.0.0.0:$PORT -t public"

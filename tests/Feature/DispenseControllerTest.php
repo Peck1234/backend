@@ -40,7 +40,7 @@ class DispenseControllerTest extends TestCase
         ]);
     }
 
-    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    private function makeCassette(Patient $patient, string $meal = 'breakfast_before'): PatientMealCassette
     {
         return PatientMealCassette::create([
             'patient_id' => $patient->id,
@@ -79,7 +79,7 @@ class DispenseControllerTest extends TestCase
 
         $response->assertStatus(200)->assertJson([
             'result' => 'correct',
-            'meal' => 'breakfast',
+            'meal' => 'breakfast_before',
         ]);
         $drugNames = collect($response->json('medications'))->pluck('drug_name')->all();
         $this->assertSame(['Paracetamol', 'Amoxicillin'], $drugNames);
@@ -231,8 +231,8 @@ class DispenseControllerTest extends TestCase
     {
         $nurse = $this->makeNurse();
         $patient = $this->makePatient();
-        $cassette = $this->makeCassette($patient, 'breakfast');
-        $otherCassette = $this->makeCassette($patient, 'lunch');
+        $cassette = $this->makeCassette($patient, 'breakfast_before');
+        $otherCassette = $this->makeCassette($patient, 'lunch_before');
         $foreignMedication = $this->makeMedication($otherCassette, 'Ibuprofen');
 
         $response = $this->postJson('/api/dispense-medications', [

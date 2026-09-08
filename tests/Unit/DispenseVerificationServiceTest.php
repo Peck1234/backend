@@ -32,7 +32,7 @@ class DispenseVerificationServiceTest extends TestCase
         return $patient;
     }
 
-    private function makeCassette(int $id, int $patientId, string $meal = 'breakfast'): PatientMealCassette
+    private function makeCassette(int $id, int $patientId, string $meal = 'breakfast_before'): PatientMealCassette
     {
         $cassette = new PatientMealCassette(['meal' => $meal, 'qr_code' => "CASSETTE-{$patientId}-{$meal}"]);
         $cassette->id = $id;
@@ -90,7 +90,7 @@ class DispenseVerificationServiceTest extends TestCase
     {
         $nurse = new Nurse(['full_name' => 'สุดา ใจดี', 'qr_code_nurse' => 'NURSE-001']);
         $patient = $this->makePatient(1);
-        $cassette = $this->makeCassette(1, 1, 'lunch');
+        $cassette = $this->makeCassette(1, 1, 'lunch_before');
 
         $result = $this->service->evaluateCassette($nurse, $patient, $cassette);
 

@@ -25,7 +25,7 @@ class StatsControllerTest extends TestCase
         return Patient::create(['full_name' => 'ผู้ป่วย ' . $qr, 'ward' => $ward, 'qr_code_patient' => $qr]);
     }
 
-    private function makeCassette(Patient $patient, string $meal = 'breakfast'): PatientMealCassette
+    private function makeCassette(Patient $patient, string $meal = 'breakfast_before'): PatientMealCassette
     {
         return PatientMealCassette::create([
             'patient_id' => $patient->id,
@@ -42,7 +42,7 @@ class StatsControllerTest extends TestCase
         $wardA = $this->makePatient('A', 'PATIENT-A');
         $wardB = $this->makePatient('B', 'PATIENT-B');
         $cassetteA = $this->makeCassette($wardA);
-        $cassetteB = $this->makeCassette($wardB, 'lunch');
+        $cassetteB = $this->makeCassette($wardB, 'lunch_before');
 
         Medication::create([
             'patient_id' => $wardA->id, 'patient_meal_cassette_id' => $cassetteA->id,
