@@ -1,6 +1,7 @@
 # Railway deployment config (Nixpacks build system).
 # Installs PHP deps, caches config, runs migrations, then serves the app
 # with PHP's built-in server bound to Railway's dynamically assigned $PORT.
+# (2026-09-08: trigger first deploy for the backend Railway service.)
 [phases.setup]
 nixPkgs = ["php81", "php81Packages.composer"]
 
