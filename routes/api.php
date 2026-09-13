@@ -62,6 +62,7 @@ Route::post('/verify-cassette', [DispenseController::class, 'verifyCassette']);
 Route::post('/dispense-medications', [DispenseController::class, 'dispenseMedications']);
 Route::get('/due-medications', [ReminderController::class, 'due']);
 Route::get('/reminder-times', [ReminderController::class, 'scheduleTimes']);
+Route::get('/reminder-schedule', [ReminderController::class, 'scheduleItems']);
 Route::get('/dispense-stats', [StatsController::class, 'index']);
 Route::get('/dispense-logs', [DispenseLogController::class, 'index']);
 Route::get('/slots', [SlotController::class, 'index']);

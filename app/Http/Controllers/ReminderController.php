@@ -52,25 +52,56 @@ class ReminderController extends Controller
     // silently skipped rather than guessed at.
     public function scheduleTimes()
     {
-        $times = Medication::whereNotNull('time_slot')
+        $times = $this->pendingMedicationTimeSlots()
+            ->map(fn ($pair) => $pair['time'])
+            ->unique()
+            ->sort()
+            ->values();
+
+        return response()->json(['times' => $times]);
+    }
+
+    // Same pending/schedulable dose times as scheduleTimes(), but one row per
+    // (medication, time) with the patient/drug detail needed to schedule a
+    // specific native notification for each - "ถึงเวลาให้ยา Paracetamol คุณสมชาย
+    // เตียง 12" instead of a generic "check the app" ping, and (because these
+    // are real OS-scheduled local notifications, not a JS poll loop) one that
+    // actually fires while the app is closed.
+    public function scheduleItems()
+    {
+        $items = $this->pendingMedicationTimeSlots()
+            ->map(fn ($pair) => [
+                'order_id' => $pair['medication']->id,
+                'time' => $pair['time'],
+                'drug_name' => $pair['medication']->drug_name,
+                'patient_name' => $pair['medication']->patient->full_name,
+                'ward' => $pair['medication']->patient->ward,
+                'bed_no' => $pair['medication']->patient->bed_no,
+            ])
+            ->values();
+
+        return response()->json(['items' => $items]);
+    }
+
+    private function pendingMedicationTimeSlots()
+    {
+        return Medication::whereNotNull('time_slot')
             ->with('patient')
             ->get()
             ->filter(function (Medication $medication) {
                 return $medication->patient && !$medication->isDispensedToday();
             })
             ->flatMap(function (Medication $medication) {
-                return explode(',', $medication->time_slot);
-            })
-            ->map(fn ($slot) => trim($slot))
-            ->filter(fn ($slot) => preg_match('/^([01]?\d|2[0-3]):[0-5]\d$/', $slot))
-            ->map(function ($slot) {
-                [$hour, $minute] = explode(':', $slot);
-                return sprintf('%02d:%s', (int) $hour, $minute);
-            })
-            ->unique()
-            ->sort()
-            ->values();
-
-        return response()->json(['times' => $times]);
+                return collect(explode(',', $medication->time_slot))
+                    ->map(fn ($slot) => trim($slot))
+                    ->filter(fn ($slot) => preg_match('/^([01]?\d|2[0-3]):[0-5]\d$/', $slot))
+                    ->map(function ($slot) use ($medication) {
+                        [$hour, $minute] = explode(':', $slot);
+                        return [
+                            'medication' => $medication,
+                            'time' => sprintf('%02d:%s', (int) $hour, $minute),
+                        ];
+                    });
+            });
     }
 }

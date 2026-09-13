@@ -150,4 +150,66 @@ class ReminderControllerTest extends TestCase
 
         $response->assertStatus(200)->assertExactJson(['times' => []]);
     }
+
+    /** @test */
+    public function schedule_items_returns_one_row_per_medication_and_time_with_patient_and_drug_detail()
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-14 00:00:00'));
+        $patient = $this->makePatient();
+        $cassette = $this->makeCassette($patient);
+
+        $medication = Medication::create([
+            'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
+            'drug_name' => 'Paracetamol',
+            'dose' => '1 เม็ด',
+            'qr_code_cassette' => 'CASSETTE-A',
+            'time_slot' => '18:00,08:00,เมื่อมีไข้ ทุก 4-6 ชั่วโมง',
+        ]);
+
+        $response = $this->getJson('/api/reminder-schedule');
+
+        $response->assertStatus(200)->assertExactJson([
+            'items' => [
+                [
+                    'order_id' => $medication->id,
+                    'time' => '18:00',
+                    'drug_name' => 'Paracetamol',
+                    'patient_name' => 'ผู้ป่วย ทดสอบ',
+                    'ward' => 'A',
+                    'bed_no' => '1',
+                ],
+                [
+                    'order_id' => $medication->id,
+                    'time' => '08:00',
+                    'drug_name' => 'Paracetamol',
+                    'patient_name' => 'ผู้ป่วย ทดสอบ',
+                    'ward' => 'A',
+                    'bed_no' => '1',
+                ],
+            ],
+        ]);
+    }
+
+    /** @test */
+    public function schedule_items_excludes_medications_already_dispensed_today()
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-14 12:00:00'));
+        $patient = $this->makePatient();
+        $cassette = $this->makeCassette($patient);
+
+        Medication::create([
+            'patient_id' => $patient->id,
+            'patient_meal_cassette_id' => $cassette->id,
+            'drug_name' => 'Dispensed',
+            'dose' => '1 เม็ด',
+            'qr_code_cassette' => 'CASSETTE-DONE',
+            'time_slot' => '09:00',
+            'dispensed_at' => Carbon::parse('2026-08-14 09:05:00'),
+        ]);
+
+        $response = $this->getJson('/api/reminder-schedule');
+
+        $response->assertStatus(200)->assertExactJson(['items' => []]);
+    }
 }
