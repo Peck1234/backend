@@ -16,14 +16,23 @@ class AuthController extends Controller
 {
     private const RESET_CODE_TTL_MINUTES = 15;
 
+    // Thai or English letters, digits, and . _ -  (no spaces or other symbols).
+    // \p{Thai} covers Thai consonants, vowels, tone marks and Thai digits.
+    private const USERNAME_PATTERN = '/^[\p{Thai}a-zA-Z0-9._-]+$/u';
+
+    private const USERNAME_MESSAGES = [
+        'username.regex' => 'ชื่อผู้ใช้ใช้ได้เฉพาะตัวอักษรไทย อังกฤษ ตัวเลข และ . _ - (ห้ามเว้นวรรค)',
+        'username.unique' => 'ชื่อผู้ใช้นี้มีคนใช้แล้ว',
+    ];
+
     public function register(Request $request)
     {
         $validated = $request->validate([
             'full_name' => 'required|string|max:255',
-            'username' => 'required|string|max:255|unique:nurses,username|regex:/^[a-zA-Z0-9._-]+$/',
+            'username' => ['required', 'string', 'max:255', 'unique:nurses,username', 'regex:' . self::USERNAME_PATTERN],
             'email' => 'required|string|email|max:255|unique:nurses,email',
             'password' => 'required|string|min:6',
-        ]);
+        ], self::USERNAME_MESSAGES);
 
         $nurse = Nurse::create([
             'full_name' => $validated['full_name'],
@@ -142,9 +151,9 @@ class AuthController extends Controller
 
         $validated = $request->validate([
             'full_name' => 'required|string|max:255',
-            'username' => 'required|string|max:255|regex:/^[a-zA-Z0-9._-]+$/|unique:nurses,username,' . $nurse->id,
+            'username' => ['required', 'string', 'max:255', 'regex:' . self::USERNAME_PATTERN, 'unique:nurses,username,' . $nurse->id],
             'email' => 'required|string|email|max:255|unique:nurses,email,' . $nurse->id,
-        ]);
+        ], self::USERNAME_MESSAGES);
 
         $nurse->update($validated);
 

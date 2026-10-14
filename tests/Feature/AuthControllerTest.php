@@ -107,6 +107,50 @@ class AuthControllerTest extends TestCase
     }
 
     /** @test */
+    public function register_accepts_a_thai_username_and_it_can_log_in()
+    {
+        $this->postJson('/api/register', [
+            'full_name' => 'สมหญิง ใจดี',
+            'username' => 'สมหญิง.ใจดี_01',
+            'email' => 'somying@example.com',
+            'password' => 'secret123',
+        ])->assertStatus(201);
+
+        $this->postJson('/api/login', ['username' => 'สมหญิง.ใจดี_01', 'password' => 'secret123'])
+            ->assertOk()
+            ->assertJsonPath('username', 'สมหญิง.ใจดี_01');
+    }
+
+    /** @test */
+    public function register_rejects_a_thai_username_with_a_space_with_a_thai_message()
+    {
+        $response = $this->postJson('/api/register', [
+            'full_name' => 'สมหญิง ใจดี',
+            'username' => 'สมหญิง ใจดี',
+            'email' => 'somying@example.com',
+            'password' => 'secret123',
+        ]);
+
+        $response->assertStatus(422)->assertJsonPath(
+            'errors.username.0',
+            'ชื่อผู้ใช้ใช้ได้เฉพาะตัวอักษรไทย อังกฤษ ตัวเลข และ . _ - (ห้ามเว้นวรรค)'
+        );
+    }
+
+    /** @test */
+    public function update_profile_accepts_a_thai_username()
+    {
+        $nurse = Nurse::create([
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'somying', 'email' => 'somying@example.com',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-002',
+        ]);
+
+        $this->withHeaders($this->authHeader($nurse))->putJson('/api/profile', [
+            'full_name' => 'สมหญิง ใจดี', 'username' => 'สมหญิง', 'email' => 'somying@example.com',
+        ])->assertOk()->assertJsonPath('username', 'สมหญิง');
+    }
+
+    /** @test */
     public function register_rejects_a_username_with_disallowed_characters()
     {
         $response = $this->postJson('/api/register', [
