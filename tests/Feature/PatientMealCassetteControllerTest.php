@@ -252,6 +252,7 @@ class PatientMealCassetteControllerTest extends TestCase
     /** @test */
     public function remove_medicine_deletes_only_that_drug()
     {
+        $this->actAsAdmin();
         $patient = $this->makePatient();
         $cassette = $this->makeCassette($patient);
         $med = $this->makeMedication($cassette, 'Paracetamol');
@@ -273,6 +274,7 @@ class PatientMealCassetteControllerTest extends TestCase
     /** @test */
     public function remove_medicine_keeps_the_cassette_and_its_qr_even_when_it_becomes_empty()
     {
+        $this->actAsAdmin();
         $patient = $this->makePatient();
         $cassette = $this->makeCassette($patient);
         $med = $this->makeMedication($cassette, 'Paracetamol');
@@ -290,6 +292,7 @@ class PatientMealCassetteControllerTest extends TestCase
     /** @test */
     public function remove_medicine_404s_when_the_medication_belongs_to_a_different_patient()
     {
+        $this->actAsAdmin();
         $patient = $this->makePatient('PATIENT-001');
         $otherPatient = $this->makePatient('PATIENT-002');
         $cassette = $this->makeCassette($patient);
@@ -301,5 +304,13 @@ class PatientMealCassetteControllerTest extends TestCase
         );
 
         $response->assertStatus(404);
+    }
+
+    private function actAsAdmin(): void
+    {
+        \Laravel\Sanctum\Sanctum::actingAs(\App\Models\Nurse::create([
+            'full_name' => 'ผู้ดูแล', 'username' => 'admin-test', 'role' => 'admin',
+            'password' => \Illuminate\Support\Facades\Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-ADMIN',
+        ]));
     }
 }

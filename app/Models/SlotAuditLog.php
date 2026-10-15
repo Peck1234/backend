@@ -52,6 +52,6 @@ class SlotAuditLog extends Model
 
     public function staff()
     {
-        return $this->belongsTo(Nurse::class, 'staff_id');
+        return $this->belongsTo(Nurse::class, 'staff_id')->withTrashed();
     }
 }

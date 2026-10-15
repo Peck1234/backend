@@ -30,6 +30,7 @@ class DispenseLog extends Model
 
     public function nurse()
     {
-        return $this->belongsTo(Nurse::class);
+        // Closed (soft-deleted) accounts still show as who dispensed.
+        return $this->belongsTo(Nurse::class)->withTrashed();
     }
 }

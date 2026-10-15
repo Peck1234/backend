@@ -37,7 +37,7 @@ class CartSlot extends Model
 
     public function creator()
     {
-        return $this->belongsTo(Nurse::class, 'created_by');
+        return $this->belongsTo(Nurse::class, 'created_by')->withTrashed();
     }
 
     public function auditLogs()

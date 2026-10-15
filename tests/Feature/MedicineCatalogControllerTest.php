@@ -17,11 +17,12 @@ class MedicineCatalogControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function makeNurse(): Nurse
+    private function makeNurse(string $role = 'admin'): Nurse
     {
         return Nurse::create([
             'full_name' => 'พยาบาล ทดสอบ',
             'username' => 'nurse1',
+            'role' => $role,
             'password' => Hash::make('secret123'),
             'qr_code_nurse' => 'NURSE-001',
         ]);

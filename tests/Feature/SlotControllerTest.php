@@ -160,6 +160,7 @@ class SlotControllerTest extends TestCase
     /** @test */
     public function clear_empties_an_occupied_slot_and_increments_the_version()
     {
+        $this->actAsAdmin();
         $patient = $this->makePatient();
         $slot = $this->makeSlot('occupied', 1, $patient->id);
 
@@ -177,6 +178,7 @@ class SlotControllerTest extends TestCase
     /** @test */
     public function clear_on_an_already_empty_slot_is_a_no_op_regardless_of_version()
     {
+        $this->actAsAdmin();
         $slot = $this->makeSlot('empty', 5);
 
         $response = $this->putJson("/api/slots/{$slot->id}/clear", ['base_version' => 999]);
@@ -188,6 +190,7 @@ class SlotControllerTest extends TestCase
     /** @test */
     public function clear_rejects_a_stale_base_version_on_an_occupied_slot()
     {
+        $this->actAsAdmin();
         $patient = $this->makePatient();
         $slot = $this->makeSlot('occupied', 3, $patient->id);
 
@@ -200,6 +203,7 @@ class SlotControllerTest extends TestCase
     /** @test */
     public function history_returns_audit_log_entries_newest_first()
     {
+        $this->actAsAdmin();
         $nurse = $this->makeNurse();
         $slot = $this->makeSlot('empty', 1);
         $patient = $this->makePatient();
@@ -222,5 +226,13 @@ class SlotControllerTest extends TestCase
         $this->assertSame('discharge', $body[0]['action']);
         $this->assertSame('assign', $body[1]['action']);
         $this->assertSame('พยาบาล ทดสอบ', $body[0]['staff_name']);
+    }
+
+    private function actAsAdmin(): void
+    {
+        \Laravel\Sanctum\Sanctum::actingAs(\App\Models\Nurse::create([
+            'full_name' => 'ผู้ดูแล', 'username' => 'admin-test', 'role' => 'admin',
+            'password' => \Illuminate\Support\Facades\Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-ADMIN',
+        ]));
     }
 }

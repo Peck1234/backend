@@ -213,6 +213,7 @@ class AuthController extends Controller
             'nurse_id' => $nurse->id,
             'full_name' => $nurse->full_name,
             'username' => $nurse->username,
+            'role' => $nurse->role ?? 'nurse',
             'email' => $nurse->email,
             'qr_code_nurse' => $nurse->qr_code_nurse,
             'profile_photo_url' => $nurse->profile_photo_path
