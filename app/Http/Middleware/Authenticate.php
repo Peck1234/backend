@@ -14,8 +14,9 @@ class Authenticate extends Middleware
      */
     protected function redirectTo($request)
     {
-        if (! $request->expectsJson()) {
-            return route('login');
-        }
+        // API only: there is no login page to send anyone to, so a missing or
+        // revoked token is always a plain 401 (see Exceptions\Handler) - even
+        // for the Excel download, which asks for a file rather than JSON.
+        return null;
     }
 }

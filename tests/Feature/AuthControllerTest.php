@@ -392,6 +392,32 @@ class AuthControllerTest extends TestCase
     }
 
     /** @test */
+    public function logout_revokes_only_this_devices_token()
+    {
+        $nurse = Nurse::create([
+            'full_name' => 'คุณออก', 'username' => 'logout1',
+            'password' => Hash::make('secret123'), 'qr_code_nurse' => 'NURSE-LOGOUT1',
+        ]);
+        $phone = $this->authHeader($nurse);
+        $tablet = $this->authHeader($nurse);
+
+        $this->postJson('/api/logout', [], $phone)->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $this->getJson('/api/user', $phone)->assertStatus(401);
+        $this->getJson('/api/user', $tablet)->assertOk();
+    }
+
+    /** @test */
+    public function a_bad_token_on_a_file_download_is_401_not_500()
+    {
+        $this->get('/api/patients/1/dispense-history/export', [
+            'Authorization' => 'Bearer 999|nope',
+            'Accept' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->assertStatus(401);
+    }
+
+    /** @test */
     public function profile_update_requires_authentication()
     {
         $response = $this->putJson('/api/profile', [

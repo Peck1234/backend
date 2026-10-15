@@ -221,7 +221,7 @@ class PatientController extends Controller
             'purpose' => isset($med['purpose']) ? $med['purpose'] : null,
             'dose' => $med['dose'],
             'instruction' => isset($med['instruction']) ? $med['instruction'] : null,
-            'time_slot' => PatientMealCassette::MEAL_TIMES[$med['meal']] ?? null,
+            'time_slot' => PatientMealCassette::timeFor($med['meal']),
         ];
     }
 }

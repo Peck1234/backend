@@ -56,7 +56,7 @@ class PatientMealCassetteController extends Controller
                 'purpose' => $validated['purpose'] ?? null,
                 'dose' => $validated['dose'],
                 'instruction' => $validated['instruction'] ?? null,
-                'time_slot' => PatientMealCassette::MEAL_TIMES[$validated['meal']] ?? null,
+                'time_slot' => PatientMealCassette::timeFor($validated['meal']),
             ]);
 
             return [$cassette, $isNew];

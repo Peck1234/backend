@@ -73,6 +73,14 @@ class AuthController extends Controller
         ]));
     }
 
+    // Revokes only this device's token - other devices stay logged in.
+    public function logout(Request $request)
+    {
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json(['message' => 'ออกจากระบบแล้ว']);
+    }
+
     // Always returns the same generic message whether or not the email is
     // registered - never reveal which emails exist in the system.
     public function forgotPassword(Request $request)

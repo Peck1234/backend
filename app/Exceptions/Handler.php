@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Throwable;
 
@@ -36,6 +37,12 @@ class Handler extends ExceptionHandler
     {
         $this->reportable(function (Throwable $e) {
             //
+        });
+
+        // A missing or revoked login token is always a JSON 401, whatever the
+        // request accepts - the app logs the nurse out on it.
+        $this->renderable(function (AuthenticationException $e) {
+            return response()->json(['detail' => 'การเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบใหม่'], 401);
         });
     }
 }

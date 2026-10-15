@@ -25,7 +25,8 @@ class PatientMealCassette extends Model
         'prn',
     ];
 
-    // Canonical clock time each fixed meal round happens at - used to derive
+    // Default clock time of each fixed meal round (admins can override these
+    // ward-wide - see mealTimes()), used to derive
     // medications.time_slot for reminder scheduling. +-30min around the old
     // single meal times (breakfast 08:00, lunch 12:00, dinner 18:00, bedtime
     // 21:00). 'prn' deliberately has no entry: it's never due at a fixed
@@ -41,6 +42,17 @@ class PatientMealCassette extends Model
         'bedtime_before' => '20:30',
         'bedtime_after' => '21:30',
     ];
+
+    /** Each fixed round's current time: the admin's setting, else the default. */
+    public static function mealTimes(): array
+    {
+        return array_merge(self::MEAL_TIMES, MealTime::pluck('time', 'meal')->all());
+    }
+
+    public static function timeFor(string $meal): ?string
+    {
+        return self::mealTimes()[$meal] ?? null;
+    }
 
     protected $fillable = [
         'patient_id',

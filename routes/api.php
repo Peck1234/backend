@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DispenseController;
 use App\Http\Controllers\DispenseLogController;
+use App\Http\Controllers\MealTimeController;
 use App\Http\Controllers\MedicineCatalogController;
 use App\Http\Controllers\NurseRoleController;
 use App\Http\Controllers\PatientController;
@@ -45,7 +46,8 @@ Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::put('/profile', [AuthController::class, 'updateProfile']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::put('/profile',[AuthController::class, 'updateProfile']);
     Route::post('/profile/photo', [AuthController::class, 'uploadProfilePhoto']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
     Route::get('/patients/{patient}/dispense-history', [PatientDispenseHistoryController::class, 'index']);
@@ -55,7 +57,8 @@ Route::middleware('auth:sanctum')->group(function () {
 // Admin only: deleting, and managing who is an admin.
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/nurses', [NurseRoleController::class, 'index']);
-    Route::put('/nurses/{nurse}/role', [NurseRoleController::class, 'update']);
+    Route::put('/meal-times', [MealTimeController::class, 'update']);
+    Route::put('/nurses/{nurse}/role',[NurseRoleController::class, 'update']);
     Route::delete('/nurses/{nurse}', [NurseRoleController::class, 'destroy']);
     Route::delete('/patients/{patient}', [PatientController::class, 'destroy']);
     Route::delete('/patients/{patient}/meal-cassettes/{cassette}/medications/{medication}', [PatientMealCassetteController::class, 'removeMedicine']);
@@ -74,7 +77,8 @@ Route::put('/patients/{patient}/meal-cassettes/{cassette}/medications/{medicatio
 Route::post('/verify-cassette', [DispenseController::class, 'verifyCassette']);
 Route::post('/dispense-medications', [DispenseController::class, 'dispenseMedications']);
 Route::get('/due-medications', [ReminderController::class, 'due']);
-Route::get('/reminder-times', [ReminderController::class, 'scheduleTimes']);
+Route::get('/meal-times', [MealTimeController::class, 'index']);
+Route::get('/reminder-times',[ReminderController::class, 'scheduleTimes']);
 Route::get('/reminder-schedule', [ReminderController::class, 'scheduleItems']);
 Route::get('/dispense-stats', [StatsController::class, 'index']);
 Route::get('/dispense-logs', [DispenseLogController::class, 'index']);
